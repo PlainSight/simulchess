@@ -32,29 +32,32 @@ function updateChannelParticipants(channels) {
             players = games[c].players;
             hostId = games[c].hostId;
         }
-        var participants = Object.values(clients).filter(c => (c.subscribed || '') == c);
-        broadcast({
+        var participants = Object.values(clients).filter(cl => (cl.subscribed || '') == c);
+        participants.forEach(par => par.send({
             type: 'participants',
-            data: participants.map(p => { 
-                var role = 'observer';
-                var authority = '';
-                var index = players.indexOf(p.cookie);
-                if (index == 0) {
-                    role = 'white';
-                } 
-                if (index == 1) {
-                    role = 'black';
-                }
-                if (hostId == p.cookie) {
-                    authority = 'host';
-                }
-                return {
-                    name: p.name,
-                    role: role,
-                    authority: authority
-                };
-            })
-        })
+            data: {
+                participants: participants.map(p => { 
+                    var role = 'observer';
+                    var authority = '';
+                    var index = players.indexOf(p.cookie);
+                    if (index == 0) {
+                        role = 'white';
+                    } 
+                    if (index == 1) {
+                        role = 'black';
+                    }
+                    if (hostId == p.cookie) {
+                        authority = 'host';
+                    }
+                    return {
+                        name: p.name,
+                        role: role,
+                        authority: authority
+                    };
+                }),
+                channel: c
+            }
+        }));
     })
 }
 
@@ -86,6 +89,15 @@ function parseMessage(m, client) {
             client.send({ type: 'cookie', data: { cookie: cookie }});
             break;
         case 'chat': // chat
+            if (message.data == 'game') {
+                var gameCode = message.data;
+                games[gameCode] = new game.Game(gameCode, client.cookie, broadcast, updateChannelParticipants);
+                client.subscribed = gameCode;
+                updateChannelParticipants([gameCode]);
+                games[client.subscribed].start(client.cookie);
+                break;
+            }
+
             // chat to same subscription
             broadcast({ 
                 type: 'text',
@@ -100,6 +112,8 @@ function parseMessage(m, client) {
             var gameCode = message.data;
             games[gameCode] = new game.Game(gameCode, client.cookie, broadcast, updateChannelParticipants);
             client.subscribed = gameCode;
+	        updateChannelParticipants([gameCode]);
+            // send update channel
             break;
         case 'join':
             // either enter them into a game or start a new game
@@ -154,8 +168,8 @@ wss.on('connection', function connection(ws) {
 setInterval(() => {
     Object.keys(games).forEach(g => {
         var game = games[g];
-        if (game.finished < Date.now()) {
-            clients.filter(c => (c.subscribed || '') == g).forEach(c => {
+        if (game.finished != 0 && game.finished < Date.now()) {
+            Object.values(clients).filter(c => (c.subscribed || '') == g).forEach(c => {
                 c.subscribed = '';
             })
             delete games[g];

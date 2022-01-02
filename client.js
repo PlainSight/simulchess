@@ -59,7 +59,10 @@ function processMessage(m) {
             localStorage.setItem(COOKIEKEY, message.data.cookie);
             break;
         case 'board':
-
+            lastBoard = activeBoard;
+            activeBoard = message.data.board;
+            console.log(activeBoard);
+            updateDisplay(1);
             break;
         case 'playerlist':
 
@@ -191,7 +194,7 @@ var colourBuffer = gl.createBuffer();
 function drawScene(gl, programInfo, calls) {
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
-    gl.clearColor(1.0, 0.0, 0.0, 0.0);
+    gl.clearColor(0.0, 0.0, 0.0, 0.0);
     gl.clearDepth(1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -211,22 +214,42 @@ function drawScene(gl, programInfo, calls) {
         
         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
         var positions = [];
-        function calculatePosition(x, y, w, h, z) {
+        function calculatePosition(x, y, w, h, z, angle) {
             y = canvas.height - y;
             z = z || 0.5;
 
-            positions.push(
-                x, y+h, z,
-                x+w, y+h, z,
-                x+w, y, z,
+            var sine = Math.sin(angle);
+            var cosine = Math.cos(angle);
+            // offset vectors
+            var w2 = -w/2; var h2 = h/2;
+            var v0 = {
+                x: cosine*w2 + sine*h2, y: cosine*h2 - sine*w2
+            };
+            w2 = w/2; h2 = h/2;
+            var v1 = {
+                x: cosine*w2 + sine*h2, y: cosine*h2 - sine*w2
+            }
+            w2 = w/2; h2 = -h/2;
+            var v2 = {
+                x: cosine*w2 + sine*h2, y: cosine*h2 - sine*w2
+            }
+            w2 = -w/2; h2 = -h/2;
+            var v3 = {
+                x: cosine*w2 + sine*h2, y: cosine*h2 - sine*w2
+            }
 
-                x, y+h, z,
-                x, y, z,
-                x+w, y, z
+            positions.push(
+                x+v0.x, y+v0.y, z,
+                x+v1.x, y+v1.y, z,
+                x+v2.x, y+v2.y, z,
+
+                x+v0.x, y+v0.y, z,
+                x+v3.x, y+v3.y, z,
+                x+v2.x, y+v2.y, z
             );
         }
         drawCalls.forEach(dc => {
-            calculatePosition(dc[4], dc[5], dc[6], dc[7], dc[8]);
+            calculatePosition(dc[4], dc[5], dc[6], dc[7], dc[8], dc[9]);
         });
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
         gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
@@ -280,9 +303,9 @@ function drawScene(gl, programInfo, calls) {
         gl.bindBuffer(gl.ARRAY_BUFFER, colourBuffer);
         var colors = [];
         drawCalls.forEach(dc => {
-            var r = dc[9].r || 0;
-            var g = dc[9].g || 0;
-            var b = dc[9].b || 0;
+            var r = dc[10].r || 0;
+            var g = dc[10].g || 0;
+            var b = dc[10].b || 0;
             colors.push(r, g, b);
             colors.push(r, g, b);
             colors.push(r, g, b);
@@ -301,12 +324,19 @@ function drawScene(gl, programInfo, calls) {
     }
 }
 
+var framesToAnimate = 1;
 var lastTimestamp = 0;
 var playerId = '';
 var turn = false;
 
-var activeBoard = {};
-var boards = {};
+var activeBoard = [{
+    type: 'p',
+    faction: 0,
+    x: 0,
+    y: 0
+}];
+var lastBoard = [];
+var boardDirection = 1;
 var grabbedPiece = null;
 
 function ParseBoard(gameId, moveNumber) {
@@ -314,6 +344,11 @@ function ParseBoard(gameId, moveNumber) {
         id: gameId,
         move: moveNumber
     }
+}
+
+function updateDisplay(x) {
+    framesToAnimate = x;
+    window.requestAnimationFrame(render);
 }
 
 function render(timestamp) {
@@ -324,30 +359,67 @@ function render(timestamp) {
 
     var calls = {};
 
-    function draw(sheet, sx, sy, sw, sh, dx, dy, dw, dh, z, color) {
+    function draw(sheet, sx, sy, sw, sh, dx, dy, dw, dh, z, angle, color) {
         calls[sheet] = calls[sheet] || [];
         color = color || { r: 0, g: 0, b: 0 };
-        calls[sheet].push([sx, sy, sw, sh, dx, dy, dw, dh, z, color]);
+        angle = angle || 0;
+        calls[sheet].push([sx, sy, sw, sh, dx, dy, dw, dh, z, angle, color]);
     }
 
-    function drawSprite(sheet, fx, fy, dx, dy, w, h, z, color) {
+    function drawSprite(sheet, fx, fy, dx, dy, w, h, z, angle, color) {
         var dim = graphics[sheet].dim
         var sx = fx*dim;
         var sy = fy*dim;
-        draw(sheet, sx, sy, dim, dim, dx, dy, w, h, z, color);
+        draw(sheet, sx, sy, dim, dim, dx, dy, w, h, z, angle, color);
     }
 
     // draw chess board
 
-
     for (var x = 0; x < 8; x++) {
         for (var y = 0; y < 8; y++) {
             var spriteFrame = (x+y+1) % 2;
-            drawSprite('tiles', spriteFrame, 0, x*24, y*24, 24, 24, 0, 0.8);
+            drawSprite('tiles', spriteFrame, 0, 12 + (x*24), 12+ (y*24), 24, 24, 0.8);
         }
     }
 
-    //drawSprite('factory', 0, 0, f.display.x, f.display.y, f.display.w, f.display.w, 0, 0.6);
+    // draw chess pieces
+
+    activeBoard.forEach(piece => {
+        var displayX = boardDirection > 0 ? piece.x : 7-piece.x;
+        var displayY = boardDirection > 0 ? piece.y : 7-piece.y;
+        var spriteFrame = 0;
+        var black = {
+            r: 0.2,
+            g: 0.2,
+            b: 0.2,
+        };
+        var white = {
+            r: 1,
+            g: 1,
+            b: 1,
+        };
+        switch(piece.type) {
+            case 'n':
+                spriteFrame = 1;
+                break;
+            case 'b':
+                spriteFrame = 2;
+                break;
+            case 'r':
+                spriteFrame = 3;
+                break;
+            case 'q':
+                spriteFrame = 4;
+                break;
+            case 'k':
+                spriteFrame = 5;
+                break;
+        }
+
+        console.log('pieces', spriteFrame, 0, (displayX*24) + 12, (displayY*24) + 12, 16, 16, 0.7, 0, piece.faction == 0 ? white : black);
+
+        drawSprite('pieces', spriteFrame, 0, (displayX*24) + 12, (displayY*24) + 12, 16, 16, 0.7, 0, piece.faction == 0 ? white : black);
+    })
 
     // process most recent click
     var click = clicks.pop();
@@ -368,7 +440,10 @@ function render(timestamp) {
     // });
 
     drawScene(gl, programInfo, calls);
-    window.requestAnimationFrame(render);
+    framesToAnimate--;
+    if (framesToAnimate > 0) {
+        window.requestAnimationFrame(render);
+    }
 }
 
 function calculateCanvasSize() {
@@ -388,6 +463,7 @@ function calculateCanvasSize() {
         canvas.width = (dimX / dimY) * canvasMinWidth;
         canvas.height = canvasMinHeight;
     }
+    updateDisplay(1);
 }
 
 calculateCanvasSize();

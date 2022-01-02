@@ -5,7 +5,7 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 	this.players = [hostId];
 	this.hostId = hostId;
 	this.started = false;
-	this.finished = null;
+	this.finished = 0;
 
 	this.currentMoves = [null, null];
 	this.board = null;
@@ -43,6 +43,13 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 		this.setupBoard();
 
 		// TODO: broadcast start message
+		broadcast({
+			type: 'board',
+			data: {
+				board: this.board
+			}
+		}, this.name);
+
 
 	}
 
@@ -60,10 +67,10 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 	var WHITE = 0;
 	var BLACK = 1;
 
-	function mp(type, side, x, y) {
+	function mp(type, faction, x, y) {
 		return {
 			type: type,
-			side: side,
+			faction: faction,
 			x: x,
 			y: y
 		}
