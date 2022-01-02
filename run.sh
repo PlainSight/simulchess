@@ -1,0 +1,1 @@
+http-server --cors & node ./server.js ;

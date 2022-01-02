@@ -1,0 +1,4 @@
+Install the npm package http-server globally `npm install http-server -g`
+Run this with cors headers enabled `http-server --cors`
+Then run the game server with node `node ./server.js`
+Then open the webpage client.html with your favourite web browser
