@@ -5,8 +5,58 @@ const wss = new ws.Server({ port: 7666 });
 
 const ALPHANUMERIC = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
+var defaultClientNameId = 5000;
 var clients = {};
 var games = {};
+
+function broadcast(message, gameId, players) {
+    var receivers = [];
+    if (players) {
+        players.forEach(p => {
+            receivers.push(clients[p]);
+        });
+    } else {
+        receivers = Object.values(clients).filter(c => (c.subscribed || '') == (gameId || ''));
+    }
+
+    receivers.forEach(r => {
+        r.send(message); 
+    });
+}
+
+function updateChannelParticipants(channels) {
+    channels.forEach(c => {
+        var players = [];
+        var hostId = null;
+        if (games[c]) {
+            players = games[c].players;
+            hostId = games[c].hostId;
+        }
+        var participants = Object.values(clients).filter(c => (c.subscribed || '') == c);
+        broadcast({
+            type: 'participants',
+            data: participants.map(p => { 
+                var role = 'observer';
+                var authority = '';
+                var index = players.indexOf(p.cookie);
+                if (index == 0) {
+                    role = 'white';
+                } 
+                if (index == 1) {
+                    role = 'black';
+                }
+                if (hostId == p.cookie) {
+                    authority = 'host';
+                }
+                return {
+                    name: p.name,
+                    role: role,
+                    authority: authority
+                };
+            })
+        })
+    })
+}
 
 function parseMessage(m, client) {
     var message = JSON.parse(m);
@@ -16,7 +66,6 @@ function parseMessage(m, client) {
             if (cookie == null) {
                 // generate an id
                 cookie = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0].map(() => { return ALPHANUMERIC[Math.floor(Math.random()*ALPHANUMERIC.length)] }).join('');
-                
             }
             client.cookie = cookie;
             if (clients[cookie]) {
@@ -26,6 +75,8 @@ function parseMessage(m, client) {
                 client.ws.client = client;
             } else {
                 clients[cookie] = client;
+                client.name = 'Player ' + defaultClientNameId;
+                defaultClientNameId++;
             }
             client.send = function(message) {
                 if (client.ws.readyState === ws.OPEN && client.isConnected) {
@@ -33,61 +84,56 @@ function parseMessage(m, client) {
                 }
             }
             client.send({ type: 'cookie', data: { cookie: cookie }});
-            if (!client.player) {
-                client.send({ type: 'nameplease' });
-            } else {
-                if (client.player.game) {
-                    client.player.state();
-                } else {
-                    client.send({ type: 'codeplease' });
+            break;
+        case 'chat': // chat
+            // chat to same subscription
+            broadcast({ 
+                type: 'text',
+                data: message.data
+            }, client.subscribed);
+            break;
+        case 'name':    // client sets their name
+            client.name = message.data;
+            updateChannelParticipants(client.subscribed);
+            break;
+        case 'create':
+            var gameCode = message.data;
+            games[gameCode] = new game.Game(gameCode, client.cookie, broadcast, updateChannelParticipants);
+            client.subscribed = gameCode;
+            break;
+        case 'join':
+            // either enter them into a game or start a new game
+            var gameCode = message.data;
+            client.subscribed = gameCode;
+            break;
+        case 'start': 
+            if (client.subscribed) {
+                var subscribedGame = games[client.subscribed];
+                if (subscribedGame) {
+                    subscribedGame.start(client.cookie);
                 }
             }
             break;
-        case 'chat': // chat
-            if (client.player) {
-                client.player.chat(message.data);
+        case 'resign':
+            if (client.subscribed) {
+                var subscribedGame = games[client.subscribed];
+                if (subscribedGame) {
+                    subscribedGame.resign(client.cookie);
+                }
+            }
+            break;
+        case 'move':
+            if (client.subscribed) {
+                var subscribedGame = games[client.subscribed];
+                if (subscribedGame) {
+                    subscribedGame.move(message.data, client.cookie);
+                }
             }
             break;
         case 'ping':
             client.send({
                 type: 'pong'
             });
-            break;
-        case 'start': 
-            if (client.player) {
-                client.player.startGame();
-            }
-            break;
-        case 'name':    // client sets their name
-            client.name = message.data;
-            break;
-        case 'join':
-            // either enter them into a game or start a new game
-            var gameCode = message.data;
-            if (gameCode && gameCode.length > 3) {
-                var newPlayer = new game.Player(client);
-                if (games[gameCode]) {
-                    if (!games[gameCode].addPlayer(newPlayer)) {
-                        client.send({ type: 'text', data: 'Game already in progress please enter another code.' });
-                        client.send({ type: 'codeplease' });
-                    }
-                } else {
-                    games[gameCode] = new game.Game(gameCode, newPlayer);
-                }
-            } else {
-                client.send({ type: 'text', data: 'Please enter a longer code.' });
-                client.send({ type: 'codeplease' });
-            }
-            break;
-        case 'leave':
-            if (client.player) {
-                client.player.leave();
-            }
-            break;
-        case 'move':
-            if (client.player) {
-                client.player.move(message.data);
-            }
             break;
     }
 
@@ -108,14 +154,10 @@ wss.on('connection', function connection(ws) {
 setInterval(() => {
     Object.keys(games).forEach(g => {
         var game = games[g];
-        if (game.finished) {
-            game.players.forEach(p => {
-                var c = p.client;
-                if (c) {
-                    c.player = null;
-                    c.send({ type: 'codeplease' });
-                }
-            });
+        if (game.finished < Date.now()) {
+            clients.filter(c => (c.subscribed || '') == g).forEach(c => {
+                c.subscribed = '';
+            })
             delete games[g];
         }
     });
