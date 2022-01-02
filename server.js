@@ -16,11 +16,27 @@ function broadcast(message, gameId, players) {
             receivers.push(clients[p]);
         });
     } else {
-        receivers = Object.values(clients).filter(c => (c.subscribed || '') == (gameId || ''));
+        if (gameId) {
+            receivers = Object.values(clients).filter(c => (c.subscribed || '') == (gameId || ''));
+        } else {
+            receivers = Object.values(clients);
+        }
     }
 
     receivers.forEach(r => {
         r.send(message); 
+    });
+}
+
+function broadcastChannels() {
+    var channels = Object.keys(games);
+    channels.push('default');
+    channels.sort((a, b) => b < a ? 1 : -1);
+    broadcast({
+        type: 'channels',
+        data: {
+            channels: channels
+        }
     });
 }
 
@@ -78,6 +94,7 @@ function parseMessage(m, client) {
                 client.ws.client = client;
             } else {
                 clients[cookie] = client;
+                client.subscribed = 'default';
                 client.name = 'Player ' + defaultClientNameId;
                 defaultClientNameId++;
             }
@@ -87,36 +104,32 @@ function parseMessage(m, client) {
                 }
             }
             client.send({ type: 'cookie', data: { cookie: cookie }});
+            broadcastChannels();
+            updateChannelParticipants([client.subscribed]);
             break;
         case 'chat': // chat
-            if (message.data == 'game') {
-                var gameCode = message.data;
-                games[gameCode] = new game.Game(gameCode, client.cookie, broadcast, updateChannelParticipants);
-                client.subscribed = gameCode;
-                updateChannelParticipants([gameCode]);
-                games[client.subscribed].start(client.cookie);
-                break;
-            }
-
             // chat to same subscription
             broadcast({ 
                 type: 'text',
-                data: message.data
+                data: client.name + ": " + message.data
             }, client.subscribed);
             break;
         case 'name':    // client sets their name
             client.name = message.data;
-            updateChannelParticipants(client.subscribed);
+            updateChannelParticipants([client.subscribed]);
             break;
         case 'create':
             var gameCode = message.data;
+            if (gameCode == 'default') {
+                break;
+            }
             games[gameCode] = new game.Game(gameCode, client.cookie, broadcast, updateChannelParticipants);
             client.subscribed = gameCode;
 	        updateChannelParticipants([gameCode]);
-            // send update channel
+            broadcastChannels();
             break;
         case 'join':
-            // either enter them into a game or start a new game
+            // join a game or channel
             var gameCode = message.data;
             client.subscribed = gameCode;
             break;
@@ -170,9 +183,11 @@ setInterval(() => {
         var game = games[g];
         if (game.finished != 0 && game.finished < Date.now()) {
             Object.values(clients).filter(c => (c.subscribed || '') == g).forEach(c => {
-                c.subscribed = '';
-            })
+                c.subscribed = 'default';
+            });
             delete games[g];
+            updateChannelParticipants(['default']);
+            broadcastChannels();
         }
     });
 }, 1000);

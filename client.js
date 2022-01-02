@@ -2,58 +2,102 @@ var webaddress = 'ws://localhost:7666';
 //var webaddress = 'wss://plainsightindustries.com/simulchesssocket';
 var resourceaddress = 'http://localhost:8080/';
 //var resourceaddress = 'https://plainsightindustries.com/simulchess/';
-let socket = new WebSocket(webaddress);
 
 var COOKIEKEY = 'simulchess0.1';
-
-socket.onopen = function() {
-    sendMessage({
-        type: 'connection',
-        data: localStorage.getItem(COOKIEKEY)
-    });
-};
-
-socket.onmessage = function(event) {
-    processMessage(event.data);
-};
-
 var chatlog = document.getElementById('messages');
 var chatInput = document.getElementById('message-input');
+var gameList = document.getElementById('games');
+var playerList = document.getElementById('players');
 
-socket.onclose = function(event) {
-    if (event.wasClean) {
-        console.log(`[close] Connection closed cleanly, code=${event.code} reason=${event.reason}`);
-    } else {
-        console.log('[close] Connection died');
-    }
-    var c = document.createElement("p");
-    c.innerText = 'Connection died. Please refresh the page to reconnect.';
-    c.style.color = "#ff0000";
-    chatlog.appendChild(c)
-};
-
-socket.onerror = function(error) {
-    console.log(`[error] ${error.message}`);
-};
-
-function sendMessage(message) {
-    socket.send(JSON.stringify(message));
+function appendToChat(message, color) {
+    var c = document.createElement('p');
+    c.innerText = message;
+    c.style.color = color;
+    chatlog.appendChild(c);
+    chatlog.scrollTop = chatlog.scrollHeight;
 }
+
+function removeChildren(node) {
+    var last;
+    while (last = node.lastChild) node.removeChild(last);
+}
+
+function setGameList(games) {
+    removeChildren(gameList);
+    games.forEach(g => {
+        var c = document.createElement('p');
+        c.innerText = g;
+        gameList.appendChild(c);
+    });
+}
+
+function setPlayerList(players) {
+    removeChildren(playerList);
+    players.forEach(p => {
+        var c = document.createElement('p');
+        c.innerText = p.name;
+        playerList.appendChild(c);
+    });
+}
+
+var socket = null;
+var sendMessage = null;
+
+function connect(connectionCount) {
+    socket = new WebSocket(webaddress);
+
+    socket.onopen = function() {
+        sendMessage({
+            type: 'connection',
+            data: localStorage.getItem(COOKIEKEY)
+        });
+
+        if (connectionCount > 0) {
+            appendToChat('Reconnected successfully', '#00ff00');
+        }
+
+        connectionCount = 0;
+    };
+    
+    socket.onmessage = function(event) {
+        processMessage(event.data);
+    };
+    
+    socket.onclose = function(event) {
+        if (event.wasClean) {
+            console.log(`[close] Connection closed cleanly, code=${event.code} reason=${event.reason}`);
+        } else {
+            console.log('[close] Connection died');
+        }
+
+        var reconnectionTime = Math.pow(2, connectionCount);
+
+        appendToChat('Connection died. Connection will retry in ' + (reconnectionTime > 1 ? reconnectionTime + ' seconds.' : ' 1 second.'), '#ff0000')
+
+        setTimeout(() => {
+            connect(connectionCount+1);
+        }, 1000 * reconnectionTime);
+    };
+    
+    socket.onerror = function(error) {
+        console.log(`[error] ${error.message}`);
+    };
+
+    sendMessage = function(message) {
+        socket.send(JSON.stringify(message));
+    }
+}
+
+connect(0);
 
 function processMessage(m) {
     var message = JSON.parse(m);
     switch (message.type) {
         case 'notification':
-            var c = document.createElement("p");
-            c.innerText = message.data;
-            c.style.color = "#ff0000";
-            chatlog.appendChild(c)
+            appendToChat(message.data, '#ff0000');
             break;
         case 'text':
-            var c = document.createElement("p");
-            c.innerText = message.data;
-            chatlog.appendChild(c);
-            chatlog.scrollTop = chatlog.scrollHeight;
+            appendToChat(message.data);
             break;
         case 'cookie':
             localStorage.setItem(COOKIEKEY, message.data.cookie);
@@ -64,8 +108,11 @@ function processMessage(m) {
             console.log(activeBoard);
             updateDisplay(1);
             break;
-        case 'playerlist':
-
+        case 'participants':
+            setPlayerList(message.data.participants);
+            break;
+        case 'channels':
+            setGameList(message.data.channels);
             break;
     }
 }
@@ -329,12 +376,7 @@ var lastTimestamp = 0;
 var playerId = '';
 var turn = false;
 
-var activeBoard = [{
-    type: 'p',
-    faction: 0,
-    x: 0,
-    y: 0
-}];
+var activeBoard = [{type: 'p',faction: 1,x: 3,y: 3,id:1},{type: 'b',faction: 0,x: 4,y: 3,id:2},{type: 'n',faction: 0,x: 3,y: 4,id:3},{type: 'k',faction: 1,x: 4,y: 4,id:4}];
 var lastBoard = [];
 var boardDirection = 1;
 var grabbedPiece = null;
@@ -378,15 +420,31 @@ function render(timestamp) {
     for (var x = 0; x < 8; x++) {
         for (var y = 0; y < 8; y++) {
             var spriteFrame = (x+y+1) % 2;
-            drawSprite('tiles', spriteFrame, 0, 12 + (x*24), 12+ (y*24), 24, 24, 0.8);
+            drawSprite('tiles', spriteFrame, 0, 12 + (x*24), 12+ (y*24), 24, 24, 0.8, 0);
         }
+    }
+
+    // process most recent click
+    var click = clicks.pop();
+    clicks = [];
+    var executingCommand = false;
+
+    if (click && grabbedPiece) {
+        // try to do a command
+        var validMove = false;
+
+        if (validMove) {
+            executingCommand = true;
+        }
+
+        grabbedPiece = 0;
     }
 
     // draw chess pieces
 
     activeBoard.forEach(piece => {
-        var displayX = boardDirection > 0 ? piece.x : 7-piece.x;
-        var displayY = boardDirection > 0 ? piece.y : 7-piece.y;
+        var x = boardDirection > 0 ? piece.x : 7-piece.x;
+        var y = boardDirection > 0 ? piece.y : 7-piece.y;
         var spriteFrame = 0;
         var black = {
             r: 0.2,
@@ -416,28 +474,17 @@ function render(timestamp) {
                 break;
         }
 
-        console.log('pieces', spriteFrame, 0, (displayX*24) + 12, (displayY*24) + 12, 16, 16, 0.7, 0, piece.faction == 0 ? white : black);
+        var displayX = (x*24) + 12;
+        var displayY = (y*24) + 12;
 
-        drawSprite('pieces', spriteFrame, 0, (displayX*24) + 12, (displayY*24) + 12, 16, 16, 0.7, 0, piece.faction == 0 ? white : black);
-    })
-
-    // process most recent click
-    var click = clicks.pop();
-    clicks = [];
-    if(click) {
-        // check where click is
-        
-    }
-
-    // tiles.forEach(t => {
-    //     if (t.display) {
-    //         drawSprite('tiles', t.colour, 0, t.display.x, t.display.y, t.display.w, t.display.w, t.display.a || 0, !!t.display.a ? 0.49 : 0.5);
-
-    //         if (t.position == highlightedPosition && t.colour == highlightedColour) {
-    //             drawSprite('highlight', 0, 0, t.display.x, t.display.y, t.display.w, t.display.w, t.display.a || 0, 0.45, 'green');
-    //         }
-    //     }
-    // });
+        drawSprite('pieces', spriteFrame, 0, displayX, displayY, 16, 16, 0.7, 0, piece.faction == 0 ? white : black);
+        if (grabbedPiece == piece.id) {
+            drawSprite('piecehighlight', spriteFrame, 0, displayX, displayY, 18, 18, 0.7, 0);
+        }
+        if (click && !executingCommand && Math.hypot(displayX - click.x, displayY - click.y) < 10) {
+            grabbedPiece = piece.id;
+        }
+    });
 
     drawScene(gl, programInfo, calls);
     framesToAnimate--;
@@ -490,15 +537,20 @@ var graphics = [
 }, {});
 
 function updateCursorPosition(e) {
-    cursorX = e.offsetX;
-    cursorY = e.offsetY;
+    var pos = translateFromDomToRenderSpace(e.offsetX, e.offsetY);
+    cursorX = pos.x;
+    cursorY = pos.y;
+    if (grabbedPiece) {
+        updateDisplay(2);
+    }
 }
 
 function mouseDown(e) {
     if (e.button == 0) {
         //select
-        clicks.push({ x: e.offsetX, y: e.offsetY });
+        clicks.push(translateFromDomToRenderSpace({ x: e.offsetX, y: e.offsetY }));
     }
+    updateDisplay(2);
 }
 
 function chat(e) {
@@ -513,11 +565,12 @@ function chat(e) {
 
 function touchDown(e) {
     var pos = getTouchPos(canvas, e);
+    pos = translateFromDomToRenderSpace(pos);
     cursorX = pos.x;
     cursorY = pos.y;
-    //clicks.push({ x: e.touches[0].clientX, y: e.touches[0].clientY });
+    clicks.push({ x: cursorX, y: cursorY });
+    updateDisplay(2);
 }
-
 
 canvas.addEventListener('mousemove', updateCursorPosition, false);
 canvas.addEventListener('mousedown', mouseDown, false);
@@ -533,8 +586,20 @@ setInterval(() => {
 
 function getTouchPos(canvasDom, touchEvent) {
     var rect = canvasDom.getBoundingClientRect();
+    var x = touchEvent.touches[0].clientX - rect.left;
+    var y = touchEvent.touches[0].clientY - rect.top;
     return {
-      x: Math.round(touchEvent.touches[0].clientX - rect.left),
-      y: Math.round(touchEvent.touches[0].clientY - rect.top)
+      x: Math.round(x),
+      y: Math.round(y)
     };
-  }
+}
+
+function translateFromDomToRenderSpace(pos) {
+    var rect = canvas.getBoundingClientRect();
+    x = canvas.width * (pos.x / rect.width);
+    y = canvas.height * (pos.y / rect.height);
+    return {
+        x: Math.round(x),
+        y: Math.round(y)
+    }
+}

@@ -35,20 +35,26 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 		// TODO: broadcast winner message
 	}
 
+	this.broadcastState = function() {
+		broadcast({
+			type: 'board',
+			data: {
+				board: this.board,
+				status: 'active',
+				timers: [300, 300]
+			}
+		}, this.name);
+	}
+
 	this.start = function(playerId) {
 		if (this.hostId != playerId) {
 			return;
 		}
 
 		this.setupBoard();
-
+		this.broadcastState();
 		// TODO: broadcast start message
-		broadcast({
-			type: 'board',
-			data: {
-				board: this.board
-			}
-		}, this.name);
+		
 
 
 	}
@@ -67,12 +73,17 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 	var WHITE = 0;
 	var BLACK = 1;
 
+	var pieceId = 100;
+
 	function mp(type, faction, x, y) {
+		var id = pieceId;
+		pieceId++;
 		return {
 			type: type,
 			faction: faction,
 			x: x,
-			y: y
+			y: y,
+			id: id
 		}
 	}
 

@@ -13,6 +13,14 @@
                 margin: 0;
                 padding: 0;
                 background-color: #30343d;
+                font-family: 'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
+            }
+            p {
+                margin-block: 0;
+                margin-inline: 0;
+            }
+            h4 {
+                margin-block: 0.25em;
             }
             #app-container {
                 max-width: 1100px;
@@ -49,8 +57,16 @@
                 margin: 8px;
                 background-color: #9b9c9e;
             }
+            #games-title {
+                padding: 4px;
+            }
             #games {
-
+                height: 100%;
+                padding: 4px;
+                overflow-y: auto;
+            }
+            #players-title {
+                padding: 4px;
             }
             #players-area {
                 grid-column: 2 / 2;
@@ -59,7 +75,9 @@
                 background-color: #9b9c9e;
             }
             #players {
-
+                height: 100%;
+                padding: 4px;
+                overflow-y: auto;
             }
             #chat-area {
                 display: grid;
@@ -75,7 +93,6 @@
                 grid-row: 1 / 2;
                 background-color: #f1f2f4;
                 overflow-y: scroll;
-                width: 100%;
                 overflow-wrap: break-word;
             }
             #message-input {
@@ -121,9 +138,11 @@
                     </div>
                 </div>
                 <div id="games-area">
+                    <h4 id="games-title">Channels</h4>
                     <div id="games"></div>
                 </div>
                 <div id="players-area">
+                    <h4 id="players-title">Players</h4>
                     <div id="players"></div>
                 </div>
                 <div id="chat-area">
