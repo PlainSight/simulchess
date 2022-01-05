@@ -1,3 +1,5 @@
+var moves = require('./moves');
+
 const ALPHANUMERIC = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 function Game(name, hostId, broadcast, updateChannelParticipants) {

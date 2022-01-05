@@ -124,14 +124,20 @@ function parseMessage(m, client) {
                 break;
             }
             games[gameCode] = new game.Game(gameCode, client.cookie, broadcast, updateChannelParticipants);
+            var oldChannel = client.subscribed;
             client.subscribed = gameCode;
-	        updateChannelParticipants([gameCode]);
+	        updateChannelParticipants([oldChannel, gameCode]);
             broadcastChannels();
             break;
         case 'join':
             // join a game or channel
+            var oldChannel = client.subscribed;
             var gameCode = message.data;
-            client.subscribed = gameCode;
+
+            if (oldChannel != gameCode) {
+                client.subscribed = gameCode;
+                updateChannelParticipants([oldChannel, gameCode]);
+            }
             break;
         case 'start': 
             if (client.subscribed) {

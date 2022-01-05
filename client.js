@@ -4,10 +4,15 @@ var resourceaddress = 'http://localhost:8080/';
 //var resourceaddress = 'https://plainsightindustries.com/simulchess/';
 
 var COOKIEKEY = 'simulchess0.1';
+var chatTitle = document.getElementById('messages-title');
 var chatlog = document.getElementById('messages');
 var chatInput = document.getElementById('message-input');
 var gameList = document.getElementById('games');
 var playerList = document.getElementById('players');
+var setPlayerNameInput = document.getElementById('set-player-name');
+var setPlayerNameButton = document.getElementById('set-player-name-button');
+var createGameNameInput = document.getElementById('create-game-name');
+var createGameButton = document.getElementById('create-game-button');
 
 function appendToChat(message, color) {
     var c = document.createElement('p');
@@ -29,6 +34,11 @@ function setGameList(games) {
         c.innerText = g;
         gameList.appendChild(c);
     });
+}
+
+function setCurrentChannel(channel) {
+    currentChannel = channel;
+    chatTitle.innerText = channel;
 }
 
 function setPlayerList(players) {
@@ -109,6 +119,7 @@ function processMessage(m) {
             updateDisplay(1);
             break;
         case 'participants':
+            setCurrentChannel(message.data.channel);
             setPlayerList(message.data.participants);
             break;
         case 'channels':
@@ -376,7 +387,9 @@ var lastTimestamp = 0;
 var playerId = '';
 var turn = false;
 
+var currentChannel = 'default';
 var activeBoard = [{type: 'p',faction: 1,x: 3,y: 3,id:1},{type: 'b',faction: 0,x: 4,y: 3,id:2},{type: 'n',faction: 0,x: 3,y: 4,id:3},{type: 'k',faction: 1,x: 4,y: 4,id:4}];
+var possibleMoves = [];
 var lastBoard = [];
 var boardDirection = 1;
 var grabbedPiece = null;
@@ -390,6 +403,7 @@ function ParseBoard(gameId, moveNumber) {
 
 function updateDisplay(x) {
     framesToAnimate = x;
+    possibleMoves = validMoves(null, activeBoard);
     window.requestAnimationFrame(render);
 }
 
@@ -486,6 +500,17 @@ function render(timestamp) {
         }
     });
 
+    // draw possible moves
+    if (grabbedPiece) {
+        possibleMoves.filter(pm => pm.id == grabbedPiece).forEach( pm => {
+            var x = boardDirection > 0 ? pm.x : 7-pm.x;
+            var y = boardDirection > 0 ? pm.y : 7-pm.y;
+            var displayX = (x*24) + 12.5;
+            var displayY = (y*24) + 12.5;
+            drawSprite('tilehighlight', 0, 0, displayX-1, displayY-1, 25, 25, 0.6, 0);
+        })
+    }
+
     drawScene(gl, programInfo, calls);
     framesToAnimate--;
     if (framesToAnimate > 0) {
@@ -529,7 +554,7 @@ var graphics = [
     { n : 'pieces.png', d: 16, noblur: true },
     { n: 'piecehighlight.png', d: 18, noblur: true },
     { n: 'tiles.png', d: 24, noblur: true },
-    { n: 'tilehighlight.png', d: 24, noblur: true }
+    { n: 'tilehighlight.png', d: 25, noblur: true }
 ].reduce((a, c) => {
     var name = c.n.split('.')[0];
     a[name] = loadTexture(c.n, c.d, c.noblur);
@@ -563,6 +588,31 @@ function chat(e) {
     });
 }
 
+function createChannel() {
+    sendMessage({
+        type: 'create',
+        data: createGameNameInput.value
+    });
+    createGameNameInput.value = '';
+}
+
+function changeName() {
+    sendMessage({
+        type: 'name',
+        data: setPlayerNameInput.value
+    });
+    setPlayerNameInput.value = '';
+}
+
+function joinChannel(e) {
+    if (e.target.children.length == 0) {
+        sendMessage({
+            type: 'join',
+            data: e.target.innerText
+        });
+    }
+}
+
 function touchDown(e) {
     var pos = getTouchPos(canvas, e);
     pos = translateFromDomToRenderSpace(pos);
@@ -577,6 +627,9 @@ canvas.addEventListener('mousedown', mouseDown, false);
 canvas.addEventListener('touchstart', touchDown, false);
 
 chatInput.addEventListener('change', chat, false);
+gameList.addEventListener('click', joinChannel, false);
+createGameButton.addEventListener('click', createChannel, false);
+setPlayerNameButton.addEventListener('click', changeName, false);
 
 setInterval(() => {
     sendMessage({
