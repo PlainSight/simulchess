@@ -44,9 +44,11 @@ function updateChannelParticipants(channels) {
     channels.forEach(c => {
         var players = [];
         var hostId = null;
+        var canBeStarted = false;
         if (games[c]) {
             players = games[c].players;
             hostId = games[c].hostId;
+            canBeStarted = !games[c].started;
         }
         var participants = Object.values(clients).filter(cl => (cl.subscribed || '') == c);
         participants.forEach(par => par.send({
@@ -55,6 +57,7 @@ function updateChannelParticipants(channels) {
                 participants: participants.map(p => { 
                     var role = 'observer';
                     var authority = '';
+                    var connectionState = 'online';
                     var index = players.indexOf(p.cookie);
                     if (index == 0) {
                         role = 'white';
@@ -65,10 +68,15 @@ function updateChannelParticipants(channels) {
                     if (hostId == p.cookie) {
                         authority = 'host';
                     }
+                    if (!p.isConnected) {
+                        connectionState = 'offline';
+                    }
                     return {
                         name: p.name,
                         role: role,
-                        authority: authority
+                        authority: authority,
+                        canStart: authority == 'host' && canBeStarted,
+                        status: connectionState
                     };
                 }),
                 channel: c
@@ -77,35 +85,82 @@ function updateChannelParticipants(channels) {
     })
 }
 
+function joinChannel(client, channel, force) {
+    var sendBoard = false;
+    var sendJoinMessage = false;
+
+    var oldChannel = client.subscribed;
+    if (oldChannel != channel) {
+        client.subscribed = channel;
+        updateChannelParticipants([oldChannel, channel]);
+        sendBoard = true;
+        sendJoinMessage = true;
+    } else {
+        if (force) {
+            client.subscribed = channel;
+            updateChannelParticipants([channel]);
+            sendBoard = true;
+            sendJoinMessage = true;
+        }
+    }
+
+    if (sendJoinMessage) {
+        client.send({
+            type: 'information',
+            data: 'Joined: ' + channel
+        });
+    }
+
+    if (sendBoard) {
+        // default board
+        var lastBroadcast = { 
+            type: 'board', 
+            data: { 
+                board: [
+                    {type: 'p',faction: 1,x: 3,y: 3,id:1},{type: 'b',faction: 0,x: 4,y: 3,id:2},
+                    {type: 'n',faction: 0,x: 3,y: 4,id:3},{type: 'k',faction: 1,x: 4,y: 4,id:4}
+                ],
+                status: 'pre',
+                timers: [300, 300]
+            }
+        };
+        if (games[channel]) {
+            lastBroadcast = games[channel].lastBroadcast || lastBroadcast;
+        }
+        client.send(lastBroadcast);
+    }
+}
+
 function parseMessage(m, client) {
     var message = JSON.parse(m);
     switch (message.type) {
         case 'connection': // connection when the player opens the page - if they don't have an id we give them an id, also give them faction
-            var cookie = message.data;
+            var cookie = message.data.cookie;
+            var name = message.data.name;
+            var channel = message.data.channel;
             if (cookie == null) {
                 // generate an id
                 cookie = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0].map(() => { return ALPHANUMERIC[Math.floor(Math.random()*ALPHANUMERIC.length)] }).join('');
             }
-            client.cookie = cookie;
-            if (clients[cookie]) {
-                clients[cookie].ws = client.ws;
-                client = clients[cookie];
-                client.isConnected = true;
-                client.ws.client = client;
-            } else {
-                clients[cookie] = client;
-                client.subscribed = 'default';
-                client.name = 'Player ' + defaultClientNameId;
+            if (channel == null || !Object.keys(games).includes(channel)) {
+                channel = 'default';
+            }
+            if (name == null) {
+                name = 'Player ' + defaultClientNameId;
                 defaultClientNameId++;
             }
+            client.cookie = cookie;
+            client.subscribed = channel;
+            client.name = name;
             client.send = function(message) {
                 if (client.ws.readyState === ws.OPEN && client.isConnected) {
                     client.ws.send(JSON.stringify(message));
                 }
             }
-            client.send({ type: 'cookie', data: { cookie: cookie }});
+            clients[cookie] = client;
+            client.send({ type: 'cookie', data: { cookie: client.cookie, name: client.name, channel: client.subscribed }});
             broadcastChannels();
-            updateChannelParticipants([client.subscribed]);
+            joinChannel(client, client.subscribed, true);
             break;
         case 'chat': // chat
             // chat to same subscription
@@ -123,21 +178,20 @@ function parseMessage(m, client) {
             if (gameCode == 'default') {
                 break;
             }
+            if (!/[A-Za-z]+/.test(gameCode)) {
+                break;
+            }
+            if (Object.keys(games).includes(gameCode)) {
+                break;
+            }
             games[gameCode] = new game.Game(gameCode, client.cookie, broadcast, updateChannelParticipants);
-            var oldChannel = client.subscribed;
-            client.subscribed = gameCode;
-	        updateChannelParticipants([oldChannel, gameCode]);
             broadcastChannels();
+            joinChannel(client, gameCode);
             break;
         case 'join':
             // join a game or channel
-            var oldChannel = client.subscribed;
             var gameCode = message.data;
-
-            if (oldChannel != gameCode) {
-                client.subscribed = gameCode;
-                updateChannelParticipants([oldChannel, gameCode]);
-            }
+            joinChannel(client, gameCode);
             break;
         case 'start': 
             if (client.subscribed) {
@@ -172,15 +226,18 @@ function parseMessage(m, client) {
 
 }
 
+var nextTrueId = Math.random()*1000000000;
+
 wss.on('connection', function connection(ws) {
-    ws.client = { ws: ws, isConnected: true };
+    var trueId = nextTrueId;
+    nextTrueId++;
+    ws.client = { ws: ws, isConnected: true, trueId: trueId };
     ws.on('message', function incoming(message) {
         parseMessage(message, ws.client);
     });
     ws.on('close', () => {
-        if (ws.player) {
-            ws.client.isConnected = false;
-        }
+        ws.client.isConnected = false;
+        ws.client.disconnected = Date.now();
     });
 });
 
@@ -196,4 +253,10 @@ setInterval(() => {
             broadcastChannels();
         }
     });
+
+    Object.values(clients).filter(c => !c.isConnected && c.disconnected < (Date.now() - 30000)).forEach(c => {
+        var channel = c.subscribed;
+        delete clients[c.cookie];
+        updateChannelParticipants([channel]);
+    })
 }, 1000);

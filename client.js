@@ -3,16 +3,22 @@ var webaddress = 'ws://localhost:7666';
 var resourceaddress = 'http://localhost:8080/';
 //var resourceaddress = 'https://plainsightindustries.com/simulchess/';
 
-var COOKIEKEY = 'simulchess0.1';
+var COOKIEKEY = 'simulchess0.1cookie';
+var NAMEKEY = 'simulchess0.1name';
+var CHANNELKEY = 'simulchess0.1channel';
 var chatTitle = document.getElementById('messages-title');
 var chatlog = document.getElementById('messages');
 var chatInput = document.getElementById('message-input');
 var gameList = document.getElementById('games');
 var playerList = document.getElementById('players');
+var setPlayerNameSection = document.getElementById('change-name');
 var setPlayerNameInput = document.getElementById('set-player-name');
 var setPlayerNameButton = document.getElementById('set-player-name-button');
+var createGameSection = document.getElementById('create-game');
 var createGameNameInput = document.getElementById('create-game-name');
 var createGameButton = document.getElementById('create-game-button');
+var startGameSection = document.getElementById('start-game');
+var startGameButton = document.getElementById('start-game-button');
 
 function appendToChat(message, color) {
     var c = document.createElement('p');
@@ -27,6 +33,16 @@ function removeChildren(node) {
     while (last = node.lastChild) node.removeChild(last);
 }
 
+function updateControlArea(canStartGame) {
+    if (canStartGame) {
+        startGameSection.style.display = 'block';
+        createGameSection.style.display = 'none';
+    } else {
+        startGameSection.style.display = 'none';
+        createGameSection.style.display = 'block';
+    }
+} 
+
 function setGameList(games) {
     removeChildren(gameList);
     games.forEach(g => {
@@ -37,17 +53,23 @@ function setGameList(games) {
 }
 
 function setCurrentChannel(channel) {
+    localStorage.setItem(CHANNELKEY, channel);
     currentChannel = channel;
     chatTitle.innerText = channel;
 }
 
 function setPlayerList(players) {
     removeChildren(playerList);
+    var canStart = false;
     players.forEach(p => {
         var c = document.createElement('p');
         c.innerText = p.name;
+        if (p.canStart && p.name == playerName) {
+            canStart = true;
+        }
         playerList.appendChild(c);
     });
+    updateControlArea(canStart);
 }
 
 var socket = null;
@@ -59,7 +81,11 @@ function connect(connectionCount) {
     socket.onopen = function() {
         sendMessage({
             type: 'connection',
-            data: localStorage.getItem(COOKIEKEY)
+            data: {
+                cookie: localStorage.getItem(COOKIEKEY),
+                name: localStorage.getItem(NAMEKEY),
+                channel: localStorage.getItem(CHANNELKEY)
+            }
         });
 
         if (connectionCount > 0) {
@@ -82,11 +108,15 @@ function connect(connectionCount) {
 
         var reconnectionTime = Math.pow(2, connectionCount);
 
-        appendToChat('Connection died. Connection will retry in ' + (reconnectionTime > 1 ? reconnectionTime + ' seconds.' : ' 1 second.'), '#ff0000')
+        if (reconnectionTime > 300) {
+            appendToChat('Connection permanently died. Refresh the page to attempt reconnection.', '#ff0000');
+        } else {
+            appendToChat('Connection died. Connection will retry in ' + (reconnectionTime > 1 ? reconnectionTime + ' seconds.' : ' 1 second.'), '#ff0000')
 
-        setTimeout(() => {
-            connect(connectionCount+1);
-        }, 1000 * reconnectionTime);
+            setTimeout(() => {
+                connect(connectionCount+1);
+            }, 1000 * reconnectionTime);
+        }
     };
     
     socket.onerror = function(error) {
@@ -106,16 +136,24 @@ function processMessage(m) {
         case 'notification':
             appendToChat(message.data, '#ff0000');
             break;
+        case 'information':
+            appendToChat(message.data, '#0000ff');
+            break;
         case 'text':
             appendToChat(message.data);
             break;
         case 'cookie':
             localStorage.setItem(COOKIEKEY, message.data.cookie);
+            localStorage.setItem(NAMEKEY, message.data.name);
+            localStorage.setItem(CHANNELKEY, message.data.channel);
+            playerName = message.data.name;
             break;
         case 'board':
             lastBoard = activeBoard;
             activeBoard = message.data.board;
-            console.log(activeBoard);
+            if (message.data.status == 'active') {
+                updateControlArea(false);
+            }
             updateDisplay(1);
             break;
         case 'participants':
@@ -384,11 +422,13 @@ function drawScene(gl, programInfo, calls) {
 
 var framesToAnimate = 1;
 var lastTimestamp = 0;
-var playerId = '';
 var turn = false;
 
+var playerName = '';
 var currentChannel = 'default';
-var activeBoard = [{type: 'p',faction: 1,x: 3,y: 3,id:1},{type: 'b',faction: 0,x: 4,y: 3,id:2},{type: 'n',faction: 0,x: 3,y: 4,id:3},{type: 'k',faction: 1,x: 4,y: 4,id:4}];
+var faction = -1;
+var hostOf = '';
+var activeBoard = [];
 var possibleMoves = [];
 var lastBoard = [];
 var boardDirection = 1;
@@ -413,6 +453,9 @@ function render(timestamp) {
     lastTimestamp = timestamp;
     var fractionOfSecond = (timestamp % 1000) / 1000;
 
+    var yOffset = Math.floor((canvas.height - 24*8) / 2);
+    var xOffset = Math.floor((canvas.width - 24*8) / 2);
+
     var calls = {};
 
     function draw(sheet, sx, sy, sw, sh, dx, dy, dw, dh, z, angle, color) {
@@ -426,7 +469,7 @@ function render(timestamp) {
         var dim = graphics[sheet].dim
         var sx = fx*dim;
         var sy = fy*dim;
-        draw(sheet, sx, sy, dim, dim, dx, dy, w, h, z, angle, color);
+        draw(sheet, sx, sy, dim, dim, xOffset + dx, yOffset + dy, w, h, z, angle, color);
     }
 
     // draw chess board
@@ -597,10 +640,12 @@ function createChannel() {
 }
 
 function changeName() {
+    var name = setPlayerNameInput.value;
     sendMessage({
         type: 'name',
-        data: setPlayerNameInput.value
+        data: name
     });
+    localStorage.setItem(NAMEKEY, name);
     setPlayerNameInput.value = '';
 }
 
@@ -611,6 +656,13 @@ function joinChannel(e) {
             data: e.target.innerText
         });
     }
+}
+
+function startGame() {
+    sendMessage({
+        type: 'start',
+        data: currentChannel
+    });
 }
 
 function touchDown(e) {
@@ -630,6 +682,7 @@ chatInput.addEventListener('change', chat, false);
 gameList.addEventListener('click', joinChannel, false);
 createGameButton.addEventListener('click', createChannel, false);
 setPlayerNameButton.addEventListener('click', changeName, false);
+startGameButton.addEventListener('click', startGame, false);
 
 setInterval(() => {
     sendMessage({

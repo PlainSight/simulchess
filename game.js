@@ -11,9 +11,13 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 
 	this.currentMoves = [null, null];
 	this.board = null;
+	this.timers = [];
 	this.turn = 0;
 
 	this.history = [];
+
+	this.lastBroadcast = null;
+	this.lastTimerBroadcast = null;
 
 	this.addPlayer = function(playerId) {
 		if (!this.started && this.players.length < 2) {
@@ -37,15 +41,26 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 		// TODO: broadcast winner message
 	}
 
+	this.broadcastTimers = function() {
+		this.lastTimerBroadcast = {
+			type: 'timers',
+			data: {
+				timers: this.timers
+			}
+		};
+		broadcast(this.lastTimerBroadcast, this.name);
+	}
+
 	this.broadcastState = function() {
-		broadcast({
+		this.lastBroadcast = {
 			type: 'board',
 			data: {
 				board: this.board,
 				status: 'active',
-				timers: [300, 300]
+				timers: this.timers
 			}
-		}, this.name);
+		};
+		broadcast(this.lastBroadcast, this.name);
 	}
 
 	this.start = function(playerId) {
@@ -54,9 +69,11 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 		}
 
 		this.setupBoard();
+		this.setupTimers();
 		this.broadcastState();
+		this.broadcastTimers();
+
 		// TODO: broadcast start message
-		
 
 
 	}
@@ -103,6 +120,37 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 			mp(ROOK, BLACK, 0, 7), mp(KNIGHT, BLACK, 1, 7), mp(BISHOP, BLACK, 2, 7), mp(QUEEN, BLACK, 3, 7), 
 			mp(KING, BLACK, 4, 7), mp(BISHOP, BLACK, 5, 7), mp(KNIGHT, BLACK, 6, 7), mp(ROOK, BLACK, 7, 7)
 		];
+	}
+
+	this.pauseTimers = function() {
+		this.timers.forEach(t => {
+			if (t.active) {
+				var elapsed = Date.now() - t.activeSince;
+				t.timeRemaining -= elapsed;
+			}
+			t.active = false;
+			t.activeSince = 0;
+		})
+	}
+
+	this.activateTimer = function(n) {
+		var t = this.timers[n];
+		if (!t) {
+			return;
+		}
+		t.active = true;
+		t.activeSince = Date.now();
+	}
+
+	this.setupTimers = function(time) {
+		function setupTimer(time) {
+			return {
+				active: false,
+				activeSince: 0,
+				timeRemaining: time
+			}
+		}
+		this.timers = [setupTimer(time), setupTimer(time)];
 	}
 
 	return this;

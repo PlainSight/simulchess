@@ -1,14 +1,6 @@
 <html>
     <head>
         <style type="text/css">
-            #canvas {
-                width: 100%;
-                height: 100%;
-                image-rendering: -moz-crisp-edges;
-                image-rendering: -webkit-crisp-edges;
-                image-rendering: pixelated;
-                image-rendering: crisp-edges;
-            }
             body {
                 margin: 0;
                 padding: 0;
@@ -36,6 +28,33 @@
                 grid-row: 1 / 1;
                 min-height: 400px;
                 padding-right: 16px;
+
+
+                display: grid;
+                grid-template-columns: auto 4em;
+                grid-template-rows: 100%;
+            }
+            #canvas {
+                width: 100%;
+                height: 100%;
+                image-rendering: -moz-crisp-edges;
+                image-rendering: -webkit-crisp-edges;
+                image-rendering: pixelated;
+                image-rendering: crisp-edges;
+
+                grid-column: 1 / 2;
+                grid-row: 1 / 1;
+            }
+            #timers {
+                grid-column: 2 / 3;
+                grid-row: 1 / 1;
+
+                display: grid;
+                justify-content: center;
+                align-content: center;
+            }
+            #timer-set {
+
             }
             #side-container {
                 grid-column: 2 / 2;
@@ -136,6 +155,12 @@
             <div id="board-container">
                 <canvas id="canvas">
                 </canvas>
+                <div id="timers">
+                    <div id="timer-set">
+                        <div id="timer1">5:00</div>
+                        <div id="timer2">5:00</div>
+                    </div>
+                </div>
             </div>
             <div id="side-container">
                 <div id="control-area">
@@ -148,6 +173,10 @@
                         <label>Create game</label>
                         <input type="text" id="create-game-name" />
                         <input type="button" id="create-game-button" value="Create" />
+                    </div>
+                    <div id="start-game" style="display: none;">
+                        <label>Start game</label>
+                        <input type="button" id="start-game-button" value="Start" />
                     </div>
                 </div>
                 <div id="games-area">
