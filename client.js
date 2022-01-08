@@ -20,6 +20,9 @@ var createGameButton = document.getElementById('create-game-button');
 var startGameSection = document.getElementById('start-game');
 var startGameButton = document.getElementById('start-game-button');
 
+var timer1 = document.getElementById('timer1');
+var timer2 = document.getElementById('timer2');
+
 function appendToChat(message, color) {
     var c = document.createElement('p');
     c.innerText = message;
@@ -151,10 +154,14 @@ function processMessage(m) {
         case 'board':
             lastBoard = activeBoard;
             activeBoard = message.data.board;
+            timers = message.data.timers;
             if (message.data.status == 'active') {
                 updateControlArea(false);
             }
             updateDisplay(1);
+            break;
+        case 'timers':
+            timers = message.data.timers;
             break;
         case 'participants':
             setCurrentChannel(message.data.channel);
@@ -428,6 +435,7 @@ var playerName = '';
 var currentChannel = 'default';
 var faction = -1;
 var hostOf = '';
+var timers = [];
 var activeBoard = [];
 var possibleMoves = [];
 var lastBoard = [];
@@ -483,6 +491,7 @@ function render(timestamp) {
 
     // process most recent click
     var click = clicks.pop();
+    
     clicks = [];
     var executingCommand = false;
 
@@ -538,6 +547,8 @@ function render(timestamp) {
         if (grabbedPiece == piece.id) {
             drawSprite('piecehighlight', spriteFrame, 0, displayX, displayY, 18, 18, 0.7, 0);
         }
+        displayX += xOffset;
+        displayY += yOffset;
         if (click && !executingCommand && Math.hypot(displayX - click.x, displayY - click.y) < 10) {
             grabbedPiece = piece.id;
         }
@@ -631,6 +642,7 @@ function chat(e) {
     });
 }
 
+
 function createChannel() {
     sendMessage({
         type: 'create',
@@ -684,11 +696,41 @@ createGameButton.addEventListener('click', createChannel, false);
 setPlayerNameButton.addEventListener('click', changeName, false);
 startGameButton.addEventListener('click', startGame, false);
 
+function updateTimer(element, index) {
+    function formatTime(x) {
+        var seconds = Math.round(x / 1000);
+        var minutes = Math.floor(seconds / 60);
+        var secondsRemaining = seconds % 60;
+        return minutes + ':' + (secondsRemaining < 10 ? '0'+secondsRemaining : secondsRemaining);
+    }
+
+    if (timers) {
+        var timer = timers[index];
+
+        if (timer) {
+            if (!timer.active) {
+                element.innerText = formatTime(timer.timeRemaining);
+            } else {
+                var remaining = timer.timeRemaining;
+                var elapsed = Date.now() - timer.activeSince;
+                remaining -= elapsed;
+                element.innerText = formatTime(remaining);
+            }
+        }
+    }
+}
+
+
 setInterval(() => {
     sendMessage({
         type: 'ping'
     });
 }, 20000);
+
+setInterval(() => {
+    updateTimer(timer1, boardDirection < 0 ? 0 : 1);
+    updateTimer(timer2, boardDirection < 0 ? 1 : 0);
+}, 1000);
 
 function getTouchPos(canvasDom, touchEvent) {
     var rect = canvasDom.getBoundingClientRect();

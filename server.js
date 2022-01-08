@@ -121,7 +121,10 @@ function joinChannel(client, channel, force) {
                     {type: 'n',faction: 0,x: 3,y: 4,id:3},{type: 'k',faction: 1,x: 4,y: 4,id:4}
                 ],
                 status: 'pre',
-                timers: [300, 300]
+                timers: [
+                    { active: false, activeSince: 0, timeRemaining: 300000 },
+                    { active: false, activeSince: 0, timeRemaining: 300000 }
+                ]
             }
         };
         if (games[channel]) {

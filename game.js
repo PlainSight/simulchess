@@ -48,6 +48,7 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 				timers: this.timers
 			}
 		};
+		this.lastBroadcast.data.timers = this.timers;
 		broadcast(this.lastTimerBroadcast, this.name);
 	}
 
@@ -69,7 +70,7 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 		}
 
 		this.setupBoard();
-		this.setupTimers();
+		this.setupTimers(300000);
 		this.broadcastState();
 		this.broadcastTimers();
 
