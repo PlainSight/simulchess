@@ -11,7 +11,6 @@ function validMoves(faction, board) {
 
     var pawnMove = { iters: 1, dirs: [{ dx: 0, dy: 1 }] };
     var pawnAttack = { iters: 1, dirs: permute([-1, 1], [ 1 ]) };
-    var pawnStartMove = { iters: 1, dirs: [{ dx: 0, dy: 2 }] };
     var knightMove = { iters: 1, dirs: [...permute([2, -2], [-1, 1]), ...permute([-1, 1], [2, -2])] };
     var bishopMove = { iters: 7, dirs: permute([-1, 1], [-1, 1]) };
     var rookMove = { iters: 7, dirs: [ { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 } ] };
@@ -38,16 +37,19 @@ function validMoves(faction, board) {
         };
     }
 
-    function enumerate(dir, piece, num) {
+    function enumerate(dir, piece, num, takeCondition) {
         var pos = add(piece, dir);
         var validPositions = [];
         var i = 0;
 c:      while(boundsCheck(pos) && i < num) {
             if (unoccupied(pos)) {
+                if (takeCondition == 'musttake') {
+                    break c;
+                }
                 validPositions.push({ id: piece.id, x: pos.x, y: pos.y });
                 pos = add(pos, dir);
             } else {
-                if (at(pos).faction != piece.faction) {
+                if (at(pos).faction != piece.faction && takeCondition != 'notake') {
                     validPositions.push({ id: piece.id, x: pos.x, y: pos.y });
                 }
                 break c;
@@ -59,21 +61,37 @@ c:      while(boundsCheck(pos) && i < num) {
 
     var moves = [];
 
-    board.filter(p => !faction || p.faction == faction).forEach(p => {
+    board.filter(p => faction == -1 || p.faction == faction).forEach(p => {
         switch(p.type) {
             case 'p':
-                // normal movement
-                pawnMove.dirs.forEach(m => {
+                // start movement
+                var startRank = p.faction == 0 ? 1 : 6;
+                if (p.y == startRank) {
+                    pawnMove.dirs.forEach(m => {
+                        var move = m;
+                        if (p.faction == 1) {
+                            move = { dx: m.dx, dy: -m.dy };
+                        }
+                        moves.push(...enumerate(move, p, 2, 'notake'));
+                    });
+                } else {
+                    // normal movement
+                    pawnMove.dirs.forEach(m => {
+                        var move = m;
+                        if (p.faction == 1) {
+                            move = { dx: m.dx, dy: -m.dy };
+                        }
+                        moves.push(...enumerate(move, p, pawnMove.iters, 'notake'));
+                    });
+                }
+                // taking
+                pawnAttack.dirs.forEach(m => {
                     var move = m;
                     if (p.faction == 1) {
                         move = { dx: m.dx, dy: -m.dy };
                     }
-                    moves.push(...enumerate(move, p, pawnMove.iters));
+                    moves.push(...enumerate(move, p, pawnAttack.iters, 'musttake'));
                 });
-                // start movement
-
-                // taking
-
                 // en passant 
                 break;
             case 'n':
@@ -106,4 +124,10 @@ c:      while(boundsCheck(pos) && i < num) {
     });
 
     return moves;
+}
+
+if (typeof window === 'undefined') {
+    module.exports = {
+        validMoves
+    }
 }

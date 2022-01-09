@@ -19,6 +19,8 @@ var createGameNameInput = document.getElementById('create-game-name');
 var createGameButton = document.getElementById('create-game-button');
 var startGameSection = document.getElementById('start-game');
 var startGameButton = document.getElementById('start-game-button');
+var playGameSection = document.getElementById('play-game');
+var playGameButton = document.getElementById('play-game-button');
 
 var timer1 = document.getElementById('timer1');
 var timer2 = document.getElementById('timer2');
@@ -36,13 +38,18 @@ function removeChildren(node) {
     while (last = node.lastChild) node.removeChild(last);
 }
 
-function updateControlArea(canStartGame) {
+function updateControlArea(canStartGame, canPlay) {
     if (canStartGame) {
         startGameSection.style.display = 'block';
         createGameSection.style.display = 'none';
     } else {
         startGameSection.style.display = 'none';
         createGameSection.style.display = 'block';
+    }
+    if (canPlay) {
+        playGameSection.style.display = 'block';
+    } else {
+        playGameSection.style.display = 'none';
     }
 } 
 
@@ -64,15 +71,27 @@ function setCurrentChannel(channel) {
 function setPlayerList(players) {
     removeChildren(playerList);
     var canStart = false;
+    var activePlayers = [];
     players.forEach(p => {
         var c = document.createElement('p');
-        c.innerText = p.name;
-        if (p.canStart && p.name == playerName) {
-            canStart = true;
+        c.innerText = p.name + (p.role != 'observer' ? ' (' + p.role + ')' : '') + (p.canStart ? ' (host)' : '');
+        if (p.role != 'observer') {
+            activePlayers.push(p.name);
+        }
+        if (p.name == playerName) {
+            if (p.canStart) {
+                canStart = true;
+            }
+            if (p.role != 'observer') {
+                faction = (p.role == 'white' ? 0 : 1);
+            } else {
+                faction = -1;
+            }
         }
         playerList.appendChild(c);
     });
-    updateControlArea(canStart);
+    var canPlay = activePlayers.length < 2 && !activePlayers.includes(playerName) && currentChannel != 'default';
+    updateControlArea(canStart, canPlay);
 }
 
 var socket = null;
@@ -156,8 +175,16 @@ function processMessage(m) {
             activeBoard = message.data.board;
             timers = message.data.timers;
             if (message.data.status == 'active') {
-                updateControlArea(false);
+                updateControlArea(false, false);
             }
+            console.log('unset');
+            moveConfirmedPiece = null;
+            moveConfirmedPos = null;
+            updateDisplay(1);
+            break;
+        case 'moveconfirmation':
+            moveConfirmedPiece = message.data.id;
+            moveConfirmedPos = { x: message.data.x, y: message.data.y };
             updateDisplay(1);
             break;
         case 'timers':
@@ -441,6 +468,8 @@ var possibleMoves = [];
 var lastBoard = [];
 var boardDirection = 1;
 var grabbedPiece = null;
+var moveConfirmedPiece = null;
+var moveConfirmedPos = null;
 
 function ParseBoard(gameId, moveNumber) {
     return {
@@ -450,8 +479,8 @@ function ParseBoard(gameId, moveNumber) {
 }
 
 function updateDisplay(x) {
-    framesToAnimate = x;
-    possibleMoves = validMoves(null, activeBoard);
+    framesToAnimate += x;
+    possibleMoves = validMoves(-1, activeBoard);
     window.requestAnimationFrame(render);
 }
 
@@ -497,10 +526,23 @@ function render(timestamp) {
 
     if (click && grabbedPiece) {
         // try to do a command
-        var validMove = false;
+
+        var xTile = Math.floor((click.x - xOffset) / 24);
+        var yTile = Math.floor((click.y - yOffset) / 24);
+
+        var validMove = validMoves(faction, activeBoard).filter(m => m.id == grabbedPiece && m.x == xTile && m.y == yTile).length > 0;
 
         if (validMove) {
             executingCommand = true;
+
+            sendMessage({
+                type: 'move',
+                data: {
+                    id: grabbedPiece,
+                    x: xTile,
+                    y: yTile
+                }
+            });
         }
 
         grabbedPiece = 0;
@@ -555,7 +597,7 @@ function render(timestamp) {
     });
 
     // draw possible moves
-    if (grabbedPiece) {
+    if (grabbedPiece && !moveConfirmedPos) {
         possibleMoves.filter(pm => pm.id == grabbedPiece).forEach( pm => {
             var x = boardDirection > 0 ? pm.x : 7-pm.x;
             var y = boardDirection > 0 ? pm.y : 7-pm.y;
@@ -563,6 +605,25 @@ function render(timestamp) {
             var displayY = (y*24) + 12.5;
             drawSprite('tilehighlight', 0, 0, displayX-1, displayY-1, 25, 25, 0.6, 0);
         })
+    }
+
+    if (moveConfirmedPos) {
+        console.log(moveConfirmedPiece, moveConfirmedPos);
+
+        var x = boardDirection > 0 ? moveConfirmedPos.x : 7-moveConfirmedPos.x;
+        var y = boardDirection > 0 ? moveConfirmedPos.y : 7-moveConfirmedPos.y;
+        var displayX = (x*24) + 12.5;
+        var displayY = (y*24) + 12.5;
+        drawSprite('tilehighlight', 0, 0, displayX-1, displayY-1, 25, 25, 0.6, 0);
+
+        var piece = activeBoard.filter(p => p.id == moveConfirmedPiece)[0];
+        if (piece) {
+            var x = boardDirection > 0 ? piece.x : 7-piece.x;
+            var y = boardDirection > 0 ? piece.y : 7-piece.y;
+            var displayX = (x*24) + 12.5;
+            var displayY = (y*24) + 12.5;
+            drawSprite('tilehighlight', 0, 0, displayX-1, displayY-1, 25, 25, 0.6, 0);
+        }
     }
 
     drawScene(gl, programInfo, calls);
@@ -677,6 +738,13 @@ function startGame() {
     });
 }
 
+function playGame() {
+    sendMessage({
+        type: 'play',
+        data: currentChannel
+    });
+}
+
 function touchDown(e) {
     var pos = getTouchPos(canvas, e);
     pos = translateFromDomToRenderSpace(pos);
@@ -695,6 +763,7 @@ gameList.addEventListener('click', joinChannel, false);
 createGameButton.addEventListener('click', createChannel, false);
 setPlayerNameButton.addEventListener('click', changeName, false);
 startGameButton.addEventListener('click', startGame, false);
+playGameButton.addEventListener('click', playGame, false);
 
 function updateTimer(element, index) {
     function formatTime(x) {

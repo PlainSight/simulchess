@@ -120,6 +120,7 @@ function joinChannel(client, channel, force) {
                     {type: 'p',faction: 1,x: 3,y: 3,id:1},{type: 'b',faction: 0,x: 4,y: 3,id:2},
                     {type: 'n',faction: 0,x: 3,y: 4,id:3},{type: 'k',faction: 1,x: 4,y: 4,id:4}
                 ],
+                killed: [],
                 status: 'pre',
                 timers: [
                     { active: false, activeSince: 0, timeRemaining: 300000 },
@@ -194,7 +195,16 @@ function parseMessage(m, client) {
         case 'join':
             // join a game or channel
             var gameCode = message.data;
-            joinChannel(client, gameCode);
+            if (games[gameCode] || gameCode == 'default') {
+                joinChannel(client, gameCode);
+            }
+            break;
+        case 'play':
+            var gameCode = message.data;
+            if (games[gameCode]) {
+                joinChannel(client, gameCode);
+                games[gameCode].addPlayer(client.cookie);
+            }
             break;
         case 'start': 
             if (client.subscribed) {

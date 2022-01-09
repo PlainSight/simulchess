@@ -1,7 +1,5 @@
 var moves = require('./moves');
 
-const ALPHANUMERIC = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
 function Game(name, hostId, broadcast, updateChannelParticipants) {
 	this.name = name;
 	this.players = [hostId];
@@ -11,6 +9,7 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 
 	this.currentMoves = [null, null];
 	this.board = null;
+	this.killed = [];
 	this.timers = [];
 	this.turn = 0;
 
@@ -22,7 +21,6 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 	this.addPlayer = function(playerId) {
 		if (!this.started && this.players.length < 2) {
 			this.players.push(playerId);
-
 			updateChannelParticipants([this.name]);
 		} else {
 			broadcast({
@@ -57,6 +55,7 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 			type: 'board',
 			data: {
 				board: this.board,
+				killed: this.killed,
 				status: 'active',
 				timers: this.timers
 			}
@@ -68,6 +67,9 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 		if (this.hostId != playerId) {
 			return;
 		}
+		if (this.players.length != 2) {
+			return;
+		}
 
 		this.setupBoard();
 		this.setupTimers(300000);
@@ -75,12 +77,101 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 		this.broadcastTimers();
 
 		// TODO: broadcast start message
+	}
 
+	this.resolveMoves = function() {
+		// calculate attack paths
+		var attackPaths = this.currentMoves.map(m => {
+			var piece = this.board.filter(p => p.id == m.id)[0];
+			var dest = { x: m.x, y: m.y };
+			var dx = m.x - piece.x;
+			var dy = m.y - piece.y;
+			console.log(piece, dest, dx, dy);
+			var idx = 0;
+			var idy = 0;
+			if (dx != 0) {
+				idx = dx / Math.abs(dx);
+			}
+			if (dy != 0) {
+				idy = dy / Math.abs(dy);
+			}
+			if (piece.type == 'n') {
+				return [dest];
+			} else {
+				var result = [];
+				for(var i = 1; i <= Math.max(Math.abs(dx), Math.abs(dy)); i++) {
+					var pos = { x: piece.x + (i*idx), y: piece.y + (i*idy) };
+					result.push(pos);
+				}
+				return result;
+			}
+		});
 
+		// move pieces
+		this.board.forEach(p => {
+			var associatedMove = this.currentMoves.filter(cm => cm.id == p.id)[0];
+			if (associatedMove) {
+				p.x = associatedMove.x;
+				p.y = associatedMove.y;
+			}
+		});
+
+		console.log(attackPaths);
+
+		// resolve victim of attacks
+		attackPaths.forEach((ap, i) => {
+			var attacker = this.board.filter(p => p.id == this.currentMoves[i].id);
+			var stop = false;
+			ap.forEach(a => {
+				if (!stop) {
+					var potentialTargets = this.board.filter(p => p.faction != i);
+					var hit = potentialTargets.filter(pt => pt.x == a.x && pt.y == a.y)[0];
+					if (hit) {
+						console.log('killing', hit);
+						hit.killed = true;
+						attacker.x = hit.x;
+						attacker.y = hit.y;
+						stop = true;
+					}
+				}
+			});
+		});
+
+		this.killed = this.board.filter(p => p.killed);
+		this.board = this.board.filter(p => !p.killed);
+
+		this.broadcastState();
+
+		this.currentMoves = [null, null];
 	}
 
 	this.move = function(data, playerId) {
+		var playerIndex = this.players.indexOf(playerId);
+		if (playerIndex  == -1) {
+			return;
+		}
+		if (this.currentMoves[playerIndex]) {
+			return;
+		}
+		// validate move
+		if (!moves.validMoves(playerIndex, this.board).filter(m => m.id == data.id && m.x == data.x && m.y == data.y).length == 1) {
+			return;
+		}
 
+		broadcast({
+			type: 'moveconfirmation',
+			data: data
+		}, null, [playerId]);
+
+		this.currentMoves[playerIndex] = data;
+
+		if (this.currentMoves[(playerIndex+1)%2] == null) {
+			this.activateTimer((playerIndex+1)%2);
+			this.broadcastTimers();
+		} else {
+			this.pauseTimers();
+			this.resolveMoves();
+		}
 	}
 
 	var PAWN = 'p';
