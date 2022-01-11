@@ -24,6 +24,8 @@ var playGameButton = document.getElementById('play-game-button');
 
 var timer1 = document.getElementById('timer1');
 var timer2 = document.getElementById('timer2');
+var playerNameDisplay1 = document.getElementById('playername1');
+var playerNameDisplay2 = document.getElementById('playername2');
 
 function appendToChat(message, color) {
     var c = document.createElement('p');
@@ -71,14 +73,14 @@ function setCurrentChannel(channel) {
 function setPlayerList(players) {
     removeChildren(playerList);
     var canStart = false;
-    var activePlayers = [];
+    activePlayers = [];
     players.forEach(p => {
         var c = document.createElement('p');
         c.innerText = p.name + (p.role != 'observer' ? ' (' + p.role + ')' : '') + (p.canStart ? ' (host)' : '');
         if (p.role != 'observer') {
-            activePlayers.push(p.name);
+            activePlayers.push(p);
         }
-        if (p.name == playerName) {
+        if (p.publicId == playerPublicId) {
             if (p.canStart) {
                 canStart = true;
             }
@@ -90,8 +92,9 @@ function setPlayerList(players) {
         }
         playerList.appendChild(c);
     });
-    var canPlay = activePlayers.length < 2 && !activePlayers.includes(playerName) && currentChannel != 'default';
+    var canPlay = activePlayers.length < 2 && !activePlayers.map(p => p.publicId).includes(playerPublicId) && currentChannel != 'default';
     updateControlArea(canStart, canPlay);
+    updatePlayerNameDisplays();
 }
 
 var socket = null;
@@ -168,7 +171,9 @@ function processMessage(m) {
             localStorage.setItem(COOKIEKEY, message.data.cookie);
             localStorage.setItem(NAMEKEY, message.data.name);
             localStorage.setItem(CHANNELKEY, message.data.channel);
+            localStorage.setItem(PUBLICIDKEY, message.data.publicId);
             playerName = message.data.name;
+            playerPublicId = message.data.publicId;
             break;
         case 'board':
             lastBoard = activeBoard;
@@ -186,6 +191,10 @@ function processMessage(m) {
             moveConfirmedPiece = message.data.id;
             moveConfirmedPos = { x: message.data.x, y: message.data.y };
             updateDisplay(1);
+            break;
+        case 'nameconfirmation':
+            playerName = message.data;
+            localStorage.setItem(NAMEKEY, name);
             break;
         case 'timers':
             timers = message.data.timers;
@@ -459,10 +468,12 @@ var lastTimestamp = 0;
 var turn = false;
 
 var playerName = '';
+var playerPublicId = -1;
 var currentChannel = 'default';
 var faction = -1;
 var hostOf = '';
 var timers = [];
+var activePlayers = [];
 var activeBoard = [];
 var possibleMoves = [];
 var lastBoard = [];
@@ -703,6 +714,12 @@ function chat(e) {
     });
 }
 
+function flipBoard() {
+    boardDirection *= -1;
+    updatePlayerNameDisplays();
+    updateTimers();
+    updateDisplay(1);
+}
 
 function createChannel() {
     sendMessage({
@@ -718,7 +735,6 @@ function changeName() {
         type: 'name',
         data: name
     });
-    localStorage.setItem(NAMEKEY, name);
     setPlayerNameInput.value = '';
 }
 
@@ -789,6 +805,24 @@ function updateTimer(element, index) {
     }
 }
 
+function updatePlayerNameDisplay(element, index) {
+    var player = activePlayers[index];
+    if (player) {
+        element.innerText = player.name;
+    }
+}
+
+function updatePlayerNameDisplays() {
+    var white = activePlayers.findIndex(ap => ap.role == 'white');
+    var black = activePlayers.findIndex(ap => ap.role == 'black');
+    updatePlayerNameDisplay(playerNameDisplay1, boardDirection < 0 ? white : black);
+    updatePlayerNameDisplay(playerNameDisplay2, boardDirection < 0 ? black : white);
+}
+
+function updateTimers() {
+    updateTimer(timer1, boardDirection < 0 ? 0 : 1);
+    updateTimer(timer2, boardDirection < 0 ? 1 : 0);
+}
 
 setInterval(() => {
     sendMessage({
@@ -797,8 +831,7 @@ setInterval(() => {
 }, 20000);
 
 setInterval(() => {
-    updateTimer(timer1, boardDirection < 0 ? 0 : 1);
-    updateTimer(timer2, boardDirection < 0 ? 1 : 0);
+    updateTimers();
 }, 1000);
 
 function getTouchPos(canvasDom, touchEvent) {

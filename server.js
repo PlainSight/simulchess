@@ -73,6 +73,7 @@ function updateChannelParticipants(channels) {
                     }
                     return {
                         name: p.name,
+                        publicId: p.publicId,
                         role: role,
                         authority: authority,
                         canStart: authority == 'host' && canBeStarted,
@@ -135,16 +136,30 @@ function joinChannel(client, channel, force) {
     }
 }
 
+var cookieToPublicIdMap = {};
+
+var publicIdGen = 10000;
+
+function cookieToPublicId(cookie) {
+    if (!cookieToPublicIdMap[cookie]) {
+        cookieToPublicIdMap[cookie] = publicIdGen;
+        publicIdGen++;
+    }
+    return cookieToPublicIdMap[cookie];
+}
+
 function parseMessage(m, client) {
     var message = JSON.parse(m);
     switch (message.type) {
         case 'connection': // connection when the player opens the page - if they don't have an id we give them an id, also give them faction
             var cookie = message.data.cookie;
+            var publicId = cookieToPublicId(messaga.data.cookie || '');
             var name = message.data.name;
             var channel = message.data.channel;
             if (cookie == null) {
                 // generate an id
                 cookie = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0].map(() => { return ALPHANUMERIC[Math.floor(Math.random()*ALPHANUMERIC.length)] }).join('');
+                publicId = cookieToPublicId(cookie);
             }
             if (channel == null || !Object.keys(games).includes(channel)) {
                 channel = 'default';
@@ -154,6 +169,7 @@ function parseMessage(m, client) {
                 defaultClientNameId++;
             }
             client.cookie = cookie;
+            client.publicId = publicId;
             client.subscribed = channel;
             client.name = name;
             client.send = function(message) {
@@ -162,7 +178,7 @@ function parseMessage(m, client) {
                 }
             }
             clients[cookie] = client;
-            client.send({ type: 'cookie', data: { cookie: client.cookie, name: client.name, channel: client.subscribed }});
+            client.send({ type: 'cookie', data: { cookie: client.cookie, publicId: client.publicId, name: client.name, channel: client.subscribed }});
             broadcastChannels();
             joinChannel(client, client.subscribed, true);
             break;
@@ -175,6 +191,10 @@ function parseMessage(m, client) {
             break;
         case 'name':    // client sets their name
             client.name = message.data;
+            client.send({
+                type: 'nameconfirmation',
+                data: client.name
+            });
             updateChannelParticipants([client.subscribed]);
             break;
         case 'create':
