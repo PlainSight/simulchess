@@ -279,10 +279,9 @@ setInterval(() => {
         var game = games[g];
         if (game.finished != 0 && game.finished < Date.now()) {
             Object.values(clients).filter(c => (c.subscribed || '') == g).forEach(c => {
-                c.subscribed = 'default';
+                joinChannel(c, 'default');
             });
             delete games[g];
-            updateChannelParticipants(['default']);
             broadcastChannels();
         }
     });
