@@ -130,14 +130,16 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 		if (pieceAtDest0 && pieceAtDest1 && pieceAtDest0.type != 'n') {
 			if (pieceAtDest0.id == this.currentMoves[1].id && pieceAtDest1.id == this.currentMoves[0].id) {
 				closeAttack = true;
-				pieceAtDest0.killed = true;
-				pieceAtDest0.x = (pieceAtDest0.x + pieceAtDest0.oldx) / 2;
-				pieceAtDest0.y = (pieceAtDest0.y + pieceAtDest0.oldy) / 2;
-				pieceAtDest1.killed = true;
-				pieceAtDest1.x = (pieceAtDest1.x + pieceAtDest1.oldx) / 2;
-				pieceAtDest1.y = (pieceAtDest1.y + pieceAtDest1.oldy) / 2;
-				console.log('killing', pieceAtDest0);
-				console.log('killing', pieceAtDest1);
+				function resolveCloseAttack(piece) {
+					if (piece.type != 'k') {
+						piece.killed = true;
+						piece.x = (piece.x + piece.oldx) / 2;
+						piece.y = (piece.y + piece.oldy) / 2;
+						console.log('killing', piece);
+					}
+				}
+				resolveCloseAttack(pieceAtDest0);
+				resolveCloseAttack(pieceAtDest1);
 			}
 		}
 
