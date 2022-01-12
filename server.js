@@ -153,7 +153,7 @@ function parseMessage(m, client) {
     switch (message.type) {
         case 'connection': // connection when the player opens the page - if they don't have an id we give them an id, also give them faction
             var cookie = message.data.cookie;
-            var publicId = cookieToPublicId(messaga.data.cookie || '');
+            var publicId = cookieToPublicId(message.data.cookie || '');
             var name = message.data.name;
             var channel = message.data.channel;
             if (cookie == null) {
@@ -164,7 +164,7 @@ function parseMessage(m, client) {
             if (channel == null || !Object.keys(games).includes(channel)) {
                 channel = 'default';
             }
-            if (name == null) {
+            if (!name) {
                 name = 'Player ' + defaultClientNameId;
                 defaultClientNameId++;
             }

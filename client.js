@@ -3,6 +3,8 @@ var webaddress = 'ws://localhost:7666';
 var resourceaddress = 'http://localhost:8080/';
 //var resourceaddress = 'https://plainsightindustries.com/simulchess/';
 
+
+var AnimationDuration = 300;
 var COOKIEKEY = 'simulchess0.1cookie';
 var NAMEKEY = 'simulchess0.1name';
 var CHANNELKEY = 'simulchess0.1channel';
@@ -21,6 +23,7 @@ var startGameSection = document.getElementById('start-game');
 var startGameButton = document.getElementById('start-game-button');
 var playGameSection = document.getElementById('play-game');
 var playGameButton = document.getElementById('play-game-button');
+var flipBoardButton = document.getElementById('flip-board-button');
 
 var timer1 = document.getElementById('timer1');
 var timer2 = document.getElementById('timer2');
@@ -81,7 +84,7 @@ function setPlayerList(players) {
             activePlayers.push(p);
         }
         if (p.publicId == playerPublicId) {
-            if (p.canStart) {
+            if (p.canStart && boardStatus == 'pre') {
                 canStart = true;
             }
             if (p.role != 'observer') {
@@ -171,18 +174,19 @@ function processMessage(m) {
             localStorage.setItem(COOKIEKEY, message.data.cookie);
             localStorage.setItem(NAMEKEY, message.data.name);
             localStorage.setItem(CHANNELKEY, message.data.channel);
-            localStorage.setItem(PUBLICIDKEY, message.data.publicId);
             playerName = message.data.name;
             playerPublicId = message.data.publicId;
             break;
         case 'board':
             lastBoard = activeBoard;
             activeBoard = message.data.board;
+            animationStartTime = Date.now();
+            killed = message.data.killed;
             timers = message.data.timers;
-            if (message.data.status == 'active') {
+            boardStatus = message.data.status;
+            if (boardStatus == 'active') {
                 updateControlArea(false, false);
             }
-            console.log('unset');
             moveConfirmedPiece = null;
             moveConfirmedPos = null;
             updateDisplay(1);
@@ -194,7 +198,7 @@ function processMessage(m) {
             break;
         case 'nameconfirmation':
             playerName = message.data;
-            localStorage.setItem(NAMEKEY, name);
+            localStorage.setItem(NAMEKEY, playerName);
             break;
         case 'timers':
             timers = message.data.timers;
@@ -475,19 +479,15 @@ var hostOf = '';
 var timers = [];
 var activePlayers = [];
 var activeBoard = [];
+var animationStartTime = 0;
+var killed = [];
+var boardStatus = '';
 var possibleMoves = [];
 var lastBoard = [];
 var boardDirection = 1;
 var grabbedPiece = null;
 var moveConfirmedPiece = null;
 var moveConfirmedPos = null;
-
-function ParseBoard(gameId, moveNumber) {
-    return {
-        id: gameId,
-        move: moveNumber
-    }
-}
 
 function updateDisplay(x) {
     framesToAnimate += x;
@@ -540,6 +540,10 @@ function render(timestamp) {
 
         var xTile = Math.floor((click.x - xOffset) / 24);
         var yTile = Math.floor((click.y - yOffset) / 24);
+        if (boardDirection < 0) {
+            xTile = 7 - xTile;
+            yTile = 7 - yTile;
+        }
 
         var validMove = validMoves(faction, activeBoard).filter(m => m.id == grabbedPiece && m.x == xTile && m.y == yTile).length > 0;
 
@@ -559,11 +563,13 @@ function render(timestamp) {
         grabbedPiece = 0;
     }
 
+    function lerp(x1, x2, p) {
+        return p*x2 + (1-p)*x1;
+    }
+
     // draw chess pieces
 
-    activeBoard.forEach(piece => {
-        var x = boardDirection > 0 ? piece.x : 7-piece.x;
-        var y = boardDirection > 0 ? piece.y : 7-piece.y;
+    function drawPiece(piece) {
         var spriteFrame = 0;
         var black = {
             r: 0.2,
@@ -593,18 +599,51 @@ function render(timestamp) {
                 break;
         }
 
+        var x = boardDirection > 0 ? piece.x : 7-piece.x;
+        var y = boardDirection > 0 ? piece.y : 7-piece.y;
+
         var displayX = (x*24) + 12;
         var displayY = (y*24) + 12;
 
-        drawSprite('pieces', spriteFrame, 0, displayX, displayY, 16, 16, 0.7, 0, piece.faction == 0 ? white : black);
-        if (grabbedPiece == piece.id) {
-            drawSprite('piecehighlight', spriteFrame, 0, displayX, displayY, 18, 18, 0.7, 0);
+        var lerpX = displayX;
+        var lerpY = displayY;
+
+        var animating = (animationStartTime + AnimationDuration) > now;
+
+        if (animating && typeof piece.oldx == 'number') {
+            var p = (now - animationStartTime) / AnimationDuration;
+
+            var oldx = boardDirection > 0 ? piece.oldx : 7-piece.oldx;
+            var oldy = boardDirection > 0 ? piece.oldy : 7-piece.oldy;
+    
+            var displayOldX = (oldx*24) + 12;
+            var displayOldY = (oldy*24) + 12;
+    
+            lerpX = lerp(displayOldX, displayX, p);
+            lerpY = lerp(displayOldY, displayY, p);
+
+            console.log(oldx, oldy, lerpX, lerpY);
         }
-        displayX += xOffset;
-        displayY += yOffset;
-        if (click && !executingCommand && Math.hypot(displayX - click.x, displayY - click.y) < 10) {
-            grabbedPiece = piece.id;
+
+        if (animating || !piece.killed) {
+            drawSprite('pieces', spriteFrame, 0, lerpX, lerpY, 16, 16, 0.7, 0, piece.faction == 0 ? white : black);
+            if (grabbedPiece == piece.id) {
+                drawSprite('piecehighlight', spriteFrame, 0, lerpX, lerpY, 18, 18, 0.7, 0);
+            }
+            lerpX += xOffset;
+            lerpY += yOffset;
+            if (click && !executingCommand && Math.hypot(lerpX - click.x, lerpY - click.y) < 10) {
+                grabbedPiece = piece.id;
+            }
         }
+    }
+
+    activeBoard.forEach(piece => {
+        drawPiece(piece);
+    });
+
+    killed.forEach(piece => {
+        drawPiece(piece);
     });
 
     // draw possible moves
@@ -639,7 +678,7 @@ function render(timestamp) {
 
     drawScene(gl, programInfo, calls);
     framesToAnimate--;
-    if (framesToAnimate > 0) {
+    if (framesToAnimate > 0 || (animationStartTime + AnimationDuration) > now) {
         window.requestAnimationFrame(render);
     }
 }
@@ -780,6 +819,7 @@ createGameButton.addEventListener('click', createChannel, false);
 setPlayerNameButton.addEventListener('click', changeName, false);
 startGameButton.addEventListener('click', startGame, false);
 playGameButton.addEventListener('click', playGame, false);
+flipBoardButton.addEventListener('click', flipBoard, false);
 
 function updateTimer(element, index) {
     function formatTime(x) {
@@ -815,13 +855,13 @@ function updatePlayerNameDisplay(element, index) {
 function updatePlayerNameDisplays() {
     var white = activePlayers.findIndex(ap => ap.role == 'white');
     var black = activePlayers.findIndex(ap => ap.role == 'black');
-    updatePlayerNameDisplay(playerNameDisplay1, boardDirection < 0 ? white : black);
-    updatePlayerNameDisplay(playerNameDisplay2, boardDirection < 0 ? black : white);
+    updatePlayerNameDisplay(playerNameDisplay1, boardDirection < 0 ? black : white);
+    updatePlayerNameDisplay(playerNameDisplay2, boardDirection < 0 ? white : black);
 }
 
 function updateTimers() {
-    updateTimer(timer1, boardDirection < 0 ? 0 : 1);
-    updateTimer(timer2, boardDirection < 0 ? 1 : 0);
+    updateTimer(timer1, boardDirection < 0 ? 1 : 0);
+    updateTimer(timer2, boardDirection < 0 ? 0 : 1);
 }
 
 setInterval(() => {

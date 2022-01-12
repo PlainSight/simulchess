@@ -18,6 +18,10 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 	this.lastBroadcast = null;
 	this.lastTimerBroadcast = null;
 
+	this.lastBoard = function() {
+		return this.history[this.history.length-1] || null;
+	}
+
 	this.addPlayer = function(playerId) {
 		if (!this.started && this.players.length < 2) {
 			this.players.push(playerId);
@@ -110,35 +114,103 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 		// move pieces
 		this.board.forEach(p => {
 			var associatedMove = this.currentMoves.filter(cm => cm.id == p.id)[0];
+			p.oldx = p.x;
+			p.oldy = p.y;
 			if (associatedMove) {
 				p.x = associatedMove.x;
 				p.y = associatedMove.y;
 			}
 		});
 
-		console.log(attackPaths);
+		var closeAttack = false;
 
-		// resolve victim of attacks
-		attackPaths.forEach((ap, i) => {
-			var attacker = this.board.filter(p => p.id == this.currentMoves[i].id);
-			var stop = false;
-			ap.forEach(a => {
-				if (!stop) {
-					var potentialTargets = this.board.filter(p => p.faction != i);
-					var hit = potentialTargets.filter(pt => pt.x == a.x && pt.y == a.y)[0];
-					if (hit) {
-						console.log('killing', hit);
-						hit.killed = true;
-						attacker.x = hit.x;
-						attacker.y = hit.y;
-						stop = true;
+		// check mutual close attacks - ie. pieces moving to each others start location (excludes knights)
+		var pieceAtDest0 = this.board.filter(p => p.oldx == this.currentMoves[0].x && p.oldy == this.currentMoves[0].y)[0];
+		var pieceAtDest1 = this.board.filter(p => p.oldx == this.currentMoves[1].x && p.oldy == this.currentMoves[1].y)[0];
+		if (pieceAtDest0 && pieceAtDest1 && pieceAtDest0.type != 'n') {
+			if (pieceAtDest0.id == this.currentMoves[1].id && pieceAtDest1.id == this.currentMoves[0].id) {
+				closeAttack = true;
+				pieceAtDest0.killed = true;
+				pieceAtDest0.x = (pieceAtDest0.x + pieceAtDest0.oldx) / 2;
+				pieceAtDest0.y = (pieceAtDest0.y + pieceAtDest0.oldy) / 2;
+				pieceAtDest1.killed = true;
+				pieceAtDest1.x = (pieceAtDest1.x + pieceAtDest1.oldx) / 2;
+				pieceAtDest1.y = (pieceAtDest1.y + pieceAtDest1.oldy) / 2;
+				console.log('killing', pieceAtDest0);
+				console.log('killing', pieceAtDest1);
+			}
+		}
+
+		// check for cross attacks - ie. pieces moving through each other
+		var crossAttack = false;
+
+		if (!closeAttack) {
+			var piece0 = this.board.filter(p => p.id == this.currentMoves[0].id)[0];
+			var piece1 = this.board.filter(p => p.id == this.currentMoves[1].id)[0];
+
+			var idx0 = piece0.x - piece0.oldx;
+			idx0 = idx0 != 0 ? idx0 / Math.abs(idx0) : 0;
+			var idy0 = piece0.y - piece0.oldy;
+			idy0 = idy0 != 0 ? idy0 / Math.abs(idy0) : 0;
+
+			var idx1 = piece1.x - piece1.oldx;
+			idx1 = idx1 != 0 ? idx1 / Math.abs(idx1) : 0;
+			var idy1 = piece1.y - piece1.oldy;
+			idy1 = idy1 != 0 ? idy1 / Math.abs(idy1) : 0;
+
+			if (idx0 == -1 * idx1 && idy0 == -1 * idy1) {
+				// check for overlapping attack spaces
+
+				attackPaths[0].forEach(ap0 => {
+					attackPaths[1].forEach(ap1 => {
+						if (ap0.x == ap1.x && ap0.y == ap1.y) {
+							crossAttack = true;
+							piece0.killed = true;
+							piece0.x = ap0.x;
+							piece0.y = ap0.y;
+							piece1.killed = true;
+							piece1.x = ap0.x;
+							piece1.y = ap0.y;
+						}
+					})
+				})
+			}
+		}
+
+		var newPositions = [];
+
+		if (!closeAttack && !crossAttack) {
+			// resolve victim of attacks
+			attackPaths.forEach((ap, i) => {
+				var attacker = this.board.filter(p => p.id == this.currentMoves[i].id)[0];
+				var stop = false;
+				ap.forEach(a => {
+					if (!stop) {
+						var potentialTargets = this.board.filter(p => p.faction != i);
+						var hit = potentialTargets.filter(pt => pt.x == a.x && pt.y == a.y)[0];
+						if (hit) {
+							console.log('killing', hit);
+							hit.killed = true;
+							newPositions.push({ id: attacker.id, x: hit.x, y: hit.y });
+							stop = true;
+						}
 					}
-				}
+				});
 			});
+		}
+
+		newPositions.forEach(np => {
+			var piece = this.board.filter(p => p.id == np.id)[0];
+			piece.x = np.x;
+			piece.y = np.y;
 		});
 
 		this.killed = this.board.filter(p => p.killed);
 		this.board = this.board.filter(p => !p.killed);
+
+		if (this.killed.filter(k => k.type == 'k').length > 0) {
+			this.finished = Date.now() + 30000;
+		}
 
 		this.broadcastState();
 
@@ -151,6 +223,9 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 			return;
 		}
 		if (this.currentMoves[playerIndex]) {
+			return;
+		}
+		if (this.finished) {
 			return;
 		}
 		// validate move
