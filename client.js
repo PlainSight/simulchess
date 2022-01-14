@@ -491,7 +491,8 @@ var moveConfirmedPos = null;
 
 function updateDisplay(x) {
     framesToAnimate += x;
-    possibleMoves = validMoves(-1, activeBoard);
+    possibleMoves = validMoves(-1, activeBoard, false);
+    attackedSquares = validMoves(-1, activeBoard, true);
     window.requestAnimationFrame(render);
 }
 
@@ -545,7 +546,7 @@ function render(timestamp) {
             yTile = 7 - yTile;
         }
 
-        var validMove = validMoves(faction, activeBoard).filter(m => m.id == grabbedPiece && m.x == xTile && m.y == yTile).length > 0;
+        var validMove = validMoves(faction, activeBoard, false).filter(m => m.id == grabbedPiece && m.x == xTile && m.y == yTile).length > 0;
 
         if (validMove) {
             executingCommand = true;
@@ -621,8 +622,6 @@ function render(timestamp) {
     
             lerpX = lerp(displayOldX, displayX, p);
             lerpY = lerp(displayOldY, displayY, p);
-
-            console.log(oldx, oldy, lerpX, lerpY);
         }
 
         if (animating || !piece.killed) {
@@ -657,9 +656,24 @@ function render(timestamp) {
         })
     }
 
-    if (moveConfirmedPos) {
-        console.log(moveConfirmedPiece, moveConfirmedPos);
+    // draw attacked squares
+    {
+        var attackedLocations = attackedSquares.reduce((a, c) => {
+            a[c.x+','+c.y+','+c.faction] = (a[c.x+','+c.y+','+c.faction] || { faction: c.faction, count: 0, x: c.x, y: c.y }); 
+            a[c.x+','+c.y+','+c.faction].count += 1;
+            return a;
+        }, {});
+        Object.values(attackedLocations).forEach(al => {
+            var x = boardDirection > 0 ? al.x : 7-al.x;
+            var y = boardDirection > 0 ? al.y : 7-al.y;
+            var displayX = (x*24) + 12.5;
+            var displayY = (y*24) + 12.5;
+            var lethal = al.count > 1;
+            drawSprite('tilehighlight', lethal ? 2 : 1, al.faction, displayX-1, displayY-1, 25, 25, 0.6, 0);
+        });
+    }
 
+    if (moveConfirmedPos) {
         var x = boardDirection > 0 ? moveConfirmedPos.x : 7-moveConfirmedPos.x;
         var y = boardDirection > 0 ? moveConfirmedPos.y : 7-moveConfirmedPos.y;
         var displayX = (x*24) + 12.5;

@@ -1,4 +1,4 @@
-function validMoves(faction, board) {
+function validMoves(faction, board, attacks) {
     function permute(dxs, dys) {
         var res = [];
         dxs.forEach(dx => {
@@ -9,7 +9,7 @@ function validMoves(faction, board) {
         return res;
     }
 
-    var pawnMove = { iters: 1, dirs: [{ dx: 0, dy: 1 }] };
+    var pawnMove = { iters: 1, dirs: [{ dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 }] };
     var pawnAttack = { iters: 1, dirs: permute([-1, 1], [ 1 ]) };
     var knightMove = { iters: 1, dirs: [...permute([2, -2], [-1, 1]), ...permute([-1, 1], [2, -2])] };
     var bishopMove = { iters: 7, dirs: permute([-1, 1], [-1, 1]) };
@@ -37,20 +37,17 @@ function validMoves(faction, board) {
         };
     }
 
-    function enumerate(dir, piece, num, takeCondition) {
+    function enumerate(dir, piece, num, attack) {
         var pos = add(piece, dir);
         var validPositions = [];
         var i = 0;
 c:      while(boundsCheck(pos) && i < num) {
             if (unoccupied(pos)) {
-                if (takeCondition == 'musttake') {
-                    break c;
-                }
-                validPositions.push({ id: piece.id, x: pos.x, y: pos.y });
+                validPositions.push({ id: piece.id, faction: piece.faction, x: pos.x, y: pos.y });
                 pos = add(pos, dir);
             } else {
-                if (at(pos).faction != piece.faction && takeCondition != 'notake') {
-                    validPositions.push({ id: piece.id, x: pos.x, y: pos.y });
+                if (at(pos).faction != piece.faction && attack) {
+                    validPositions.push({ id: piece.id, faction: piece.faction, x: pos.x, y: pos.y });
                 }
                 break c;
             }
@@ -64,59 +61,62 @@ c:      while(boundsCheck(pos) && i < num) {
     board.filter(p => faction == -1 || p.faction == faction).forEach(p => {
         switch(p.type) {
             case 'p':
-                // start movement
-                var startRank = p.faction == 0 ? 1 : 6;
-                if (p.y == startRank) {
-                    pawnMove.dirs.forEach(m => {
+                if (attacks) {
+                    // taking
+                    pawnAttack.dirs.forEach(m => {
                         var move = m;
                         if (p.faction == 1) {
                             move = { dx: m.dx, dy: -m.dy };
                         }
-                        moves.push(...enumerate(move, p, 2, 'notake'));
+                        moves.push(...enumerate(move, p, pawnAttack.iters, attacks));
                     });
                 } else {
-                    // normal movement
-                    pawnMove.dirs.forEach(m => {
-                        var move = m;
-                        if (p.faction == 1) {
-                            move = { dx: m.dx, dy: -m.dy };
-                        }
-                        moves.push(...enumerate(move, p, pawnMove.iters, 'notake'));
-                    });
-                }
-                // taking
-                pawnAttack.dirs.forEach(m => {
-                    var move = m;
-                    if (p.faction == 1) {
-                        move = { dx: m.dx, dy: -m.dy };
+                    // start movement
+                    var startRank = p.faction == 0 ? 1 : 6;
+                    if (p.y == startRank) {
+                        pawnMove.dirs.forEach(m => {
+                            var move = m;
+                            if (p.faction == 1) {
+                                move = { dx: m.dx, dy: -m.dy };
+                            }
+                            moves.push(...enumerate(move, p, m.dy != 0 ? 2 : 1, attacks));
+                        });
+                    } else {
+                        // normal movement
+                        pawnMove.dirs.forEach(m => {
+                            var move = m;
+                            if (p.faction == 1) {
+                                move = { dx: m.dx, dy: -m.dy };
+                            }
+                            moves.push(...enumerate(move, p, pawnMove.iters, attacks));
+                        });
                     }
-                    moves.push(...enumerate(move, p, pawnAttack.iters, 'musttake'));
-                });
+                }
                 // en passant 
                 break;
             case 'n':
                 knightMove.dirs.forEach(m => {
-                    moves.push(...enumerate(m, p, knightMove.iters));
+                    moves.push(...enumerate(m, p, knightMove.iters, attacks));
                 });
                 break;
             case 'b':
                 bishopMove.dirs.forEach(m => {
-                    moves.push(...enumerate(m, p, bishopMove.iters));
+                    moves.push(...enumerate(m, p, bishopMove.iters, attacks));
                 });
                 break;
             case 'r':
                 rookMove.dirs.forEach(m => {
-                    moves.push(...enumerate(m, p, rookMove.iters));
+                    moves.push(...enumerate(m, p, rookMove.iters, attacks));
                 });
                 break;
             case 'q':
                 queenMove.dirs.forEach(m => {
-                    moves.push(...enumerate(m, p, queenMove.iters));
+                    moves.push(...enumerate(m, p, queenMove.iters, attacks));
                 });
                 break;
             case 'k':
                 kingMove.dirs.forEach(m => {
-                    moves.push(...enumerate(m, p, kingMove.iters));
+                    moves.push(...enumerate(m, p, kingMove.iters, attacks));
                 });
                 // check for castling possibilities
                 break;

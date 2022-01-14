@@ -85,12 +85,11 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 
 	this.resolveMoves = function() {
 		// calculate attack paths
-		var attackPaths = this.currentMoves.map(m => {
+		var movePaths = this.currentMoves.map(m => {
 			var piece = this.board.filter(p => p.id == m.id)[0];
 			var dest = { x: m.x, y: m.y };
 			var dx = m.x - piece.x;
 			var dy = m.y - piece.y;
-			console.log(piece, dest, dx, dy);
 			var idx = 0;
 			var idy = 0;
 			if (dx != 0) {
@@ -100,14 +99,14 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 				idy = dy / Math.abs(dy);
 			}
 			if (piece.type == 'n') {
-				return [dest];
+				return { piece: piece, path: [dest] };
 			} else {
 				var result = [];
 				for(var i = 1; i <= Math.max(Math.abs(dx), Math.abs(dy)); i++) {
 					var pos = { x: piece.x + (i*idx), y: piece.y + (i*idy) };
 					result.push(pos);
 				}
-				return result;
+				return { piece: piece, path: result };
 			}
 		});
 
@@ -122,33 +121,32 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 			}
 		});
 
-		var closeAttack = false;
+		
 
-		// check mutual close attacks - ie. pieces moving to each others start location (excludes knights)
-		var pieceAtDest0 = this.board.filter(p => p.oldx == this.currentMoves[0].x && p.oldy == this.currentMoves[0].y)[0];
-		var pieceAtDest1 = this.board.filter(p => p.oldx == this.currentMoves[1].x && p.oldy == this.currentMoves[1].y)[0];
-		if (pieceAtDest0 && pieceAtDest1 && pieceAtDest0.type != 'n') {
-			if (pieceAtDest0.id == this.currentMoves[1].id && pieceAtDest1.id == this.currentMoves[0].id) {
-				closeAttack = true;
-				function resolveCloseAttack(piece) {
-					if (piece.type != 'k') {
-						piece.killed = true;
-						piece.x = (piece.x + piece.oldx) / 2;
-						piece.y = (piece.y + piece.oldy) / 2;
-						console.log('killing', piece);
-					}
-				}
-				resolveCloseAttack(pieceAtDest0);
-				resolveCloseAttack(pieceAtDest1);
+		// TODO: block pieces from moving through each other, resolve fairly ie. pieces move same distance before being blocked
+		{
+			function eq(v1, v2) {
+				return v1.x == v2.x && v1.y == v2.y;
 			}
-		}
 
-		// check for cross attacks - ie. pieces moving through each other
-		var crossAttack = false;
+			function intersection(a1, a2) {
+				var u = [];
+				a1.forEach(a1e => {
+					a2.forEach(a2e => {
+						if (eq(a1e, a2e)) {
+							u.push(a1e);
+						}
+					});
+				});
+				return u;
+			}
 
-		if (!closeAttack) {
-			var piece0 = this.board.filter(p => p.id == this.currentMoves[0].id)[0];
-			var piece1 = this.board.filter(p => p.id == this.currentMoves[1].id)[0];
+			function dist(v1, v2) {
+				return Math.max(Math.abs(v1.x - v2.x), Math.abs(v1.y - v2.y));
+			}
+
+			var piece0 = movePaths[0].piece;
+			var piece1 = movePaths[1].piece;
 
 			var idx0 = piece0.x - piece0.oldx;
 			idx0 = idx0 != 0 ? idx0 / Math.abs(idx0) : 0;
@@ -160,51 +158,38 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 			var idy1 = piece1.y - piece1.oldy;
 			idy1 = idy1 != 0 ? idy1 / Math.abs(idy1) : 0;
 
-			if (idx0 == -1 * idx1 && idy0 == -1 * idy1) {
+			if (idx0 == -1 * idx1 && idy0 == -1 * idy1 && intersection(movePaths[0].path, movePaths[1].path).length > 0) {
 				// check for overlapping attack spaces
-
-				attackPaths[0].forEach(ap0 => {
-					attackPaths[1].forEach(ap1 => {
-						if (ap0.x == ap1.x && ap0.y == ap1.y) {
-							crossAttack = true;
-							piece0.killed = true;
-							piece0.x = ap0.x;
-							piece0.y = ap0.y;
-							piece1.killed = true;
-							piece1.x = ap0.x;
-							piece1.y = ap0.y;
-						}
-					})
-				})
+		tc:		while (i < movePaths[0].path.length && j < movePaths[1].path.length) {
+					if (dist(movePaths[0][i], movePaths[1][j]) < 2) {
+						break tc;
+					} else {
+						piece0.x = movePaths[0].path[i].x;
+						piece0.y = movePaths[0].path[i].y;
+						piece1.x = movePaths[1].path[j].x;
+						piece1.y = movePaths[1].path[j].y;
+					}
+				}
+			} else {
+				// just see if one's destination lies within the attack path of the other
 			}
 		}
 
-		var newPositions = [];
+		var attackedSquares = moves.validMoves(-1, this.board, true);
 
-		if (!closeAttack && !crossAttack) {
-			// resolve victim of attacks
-			attackPaths.forEach((ap, i) => {
-				var attacker = this.board.filter(p => p.id == this.currentMoves[i].id)[0];
-				var stop = false;
-				ap.forEach(a => {
-					if (!stop) {
-						var potentialTargets = this.board.filter(p => p.faction != i);
-						var hit = potentialTargets.filter(pt => pt.x == a.x && pt.y == a.y)[0];
-						if (hit) {
-							console.log('killing', hit);
-							hit.killed = true;
-							newPositions.push({ id: attacker.id, x: hit.x, y: hit.y });
-							stop = true;
-						}
-					}
-				});
-			});
-		}
-
-		newPositions.forEach(np => {
-			var piece = this.board.filter(p => p.id == np.id)[0];
-			piece.x = np.x;
-			piece.y = np.y;
+		var attackedLocations = attackedSquares.reduce((a, c) => {
+            a[c.x+','+c.y+','+c.faction] = (a[c.x+','+c.y+','+c.faction] || { faction: c.faction, count: 0, x: c.x, y: c.y }); 
+            a[c.x+','+c.y+','+c.faction].count += 1;
+            return a;
+        }, {});
+        Object.values(attackedLocations).forEach(al => {
+			// TODO: kill units on squares attacked by 2 or more enemy units
+			if (al.count > 1) {
+				var pieceUnderAttack = this.board.filter(p => p.x == al.x && p.y == al.y && p.faction != al.faction)[0];
+				if (pieceUnderAttack) {
+					pieceUnderAttack.killed = true;
+				}
+			}
 		});
 
 		this.killed = this.board.filter(p => p.killed);
@@ -231,7 +216,7 @@ function Game(name, hostId, broadcast, updateChannelParticipants) {
 			return;
 		}
 		// validate move
-		if (!moves.validMoves(playerIndex, this.board).filter(m => m.id == data.id && m.x == data.x && m.y == data.y).length == 1) {
+		if (!moves.validMoves(playerIndex, this.board, false).filter(m => m.id == data.id && m.x == data.x && m.y == data.y).length == 1) {
 			return;
 		}
 
